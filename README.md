@@ -1,10 +1,10 @@
 #  𓃡 Loop Watchdog
-Loop Watchdog is a runaway-agent kill switch for AI coding sessions.  
+Loop Watchdog is a runaway-agent kill switch for looped AI coding sessions.  
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-proxy%20core-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflareworkers&logoColor=white)](https://workers.cloudflare.com/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-111111.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE) 
 [![Local First](https://img.shields.io/badge/local--first-kill%20switch-1f6feb)](#architecture)
 [![Built For AI Agents](https://img.shields.io/badge/AI%20agents-loop%20watchdog-ea4aaa)](#what-the-proxy-detects)
 
