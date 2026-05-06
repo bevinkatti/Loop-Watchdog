@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ app_name }}</title>
+    <link rel="stylesheet" href="/assets/dashboard.css" />
+  </head>
+  <body data-refresh-ms="{{ refresh_ms }}">
+    <div class="signal-glow glow-left"></div>
+    <div class="signal-glow glow-right"></div>
+    <div class="grid-fade"></div>
+
+    <div class="app-shell">
+      <header class="floating-nav">
+        <div class="nav-brand">
+          <div class="nav-mark" aria-hidden="true"></div>
+          <div class="nav-brand-copy">
+            <span class="nav-label">Loop Watchdog</span>
+            <span class="nav-beta">Operator Console</span>
+          </div>
+        </div>
+
+        <div class="nav-actions">
+          <a class="nav-link" href="/docs">API Docs</a>
+          <a class="nav-link" href="/healthz">Health</a>
+          <div class="nav-status">
+            <span class="status-dot"></span>
+            <span id="last-refresh">Waiting for first sync</span>
+          </div>
+        </div>
+      </header>
+
+      <section class="hero">
+        <div class="hero-chip">Live protection for AI coding agents</div>
+        <h1 class="hero-title">
+          Stop runaway agent loops
+          <span>before credits burn.</span>
+        </h1>
+        <p class="hero-subtitle">
+          Watch sessions in real time, inspect repeated failures, and intervene
+          from a control surface that feels calm under pressure.
+        </p>
+        <div id="hero-stats" class="hero-stats"></div>
+      </section>
+
+      <section class="command-stage">
+        <div class="stage-frame">
+          <div class="stage-corner corner-top-left"></div>
+          <div class="stage-corner corner-top-right"></div>
+          <div class="stage-corner corner-bottom-left"></div>
+          <div class="stage-corner corner-bottom-right"></div>
+
+          <div class="stage-header">
+            <div>
+              <span class="eyebrow">Command Center</span>
+              <h2>Session intelligence and operator actions</h2>
+            </div>
+            <p>
+              Select any session to inspect churn, repeated errors, and the exact
+              reason the watchdog stepped in.
+            </p>
+          </div>
+
+          <main class="dashboard-grid">
+            <aside class="left-rail">
+              <section class="overview-card">
+                <div class="section-heading">
+                  <span class="eyebrow">System Snapshot</span>
+                  <h3>Pressure across the active workspace</h3>
+                </div>
+
+                <div id="overview-stats" class="stats-grid"></div>
+
+                <div class="operator-actions">
+                  <button id="clear-history-button" class="action-button action-button-outline" type="button">
+                    Clear Local History
+                  </button>
+                </div>
+              </section>
+
+              <section class="session-list-card">
+                <div class="section-heading">
+                  <span class="eyebrow">Session Watchlist</span>
+                  <h3>Live timelines and paused threads</h3>
+                </div>
+
+                <div id="session-list" class="session-list"></div>
+              </section>
+            </aside>
+
+            <section class="detail-column">
+              <section class="hero-card">
+                <div class="hero-copy">
+                  <span id="selected-stage" class="eyebrow">No session selected</span>
+                  <h3 id="selected-session">Choose a session to inspect</h3>
+                  <p id="selected-summary">
+                    Once events start flowing, the Watchdog will explain where the
+                    session is stuck and let you intervene from here.
+                  </p>
+                </div>
+
+                <div id="selected-badges" class="hero-badges"></div>
+              </section>
+
+              <div class="detail-grid">
+                <section class="incident-card">
+                  <div class="section-heading">
+                    <span class="eyebrow">Incident Analysis</span>
+                    <h3>Why the session is paused</h3>
+                  </div>
+
+                  <div id="incident-panel" class="incident-panel empty-panel">
+                    No active incident for this session.
+                  </div>
+                </section>
+
+                <section class="operator-card">
+                  <div class="section-heading">
+                    <span class="eyebrow">Operator Actions</span>
+                    <h3>Resume, reset, or terminate</h3>
+                  </div>
+
+                  <label class="operator-label" for="operator-note">Intervention note</label>
+                  <textarea
+                    id="operator-note"
+                    class="operator-note"
+                    rows="4"
+                    placeholder="Leave a human review note so the next action has context."
+                  ></textarea>
+
+                  <div class="operator-actions">
+                    <button id="resume-button" class="action-button action-button-amber" type="button">
+                      Resume
+                    </button>
+                    <button id="resume-reset-button" class="action-button action-button-teal" type="button">
+                      Resume + Reset Window
+                    </button>
+                    <button id="acknowledge-button" class="action-button action-button-outline" type="button">
+                      Acknowledge
+                    </button>
+                    <button id="archive-button" class="action-button action-button-outline" type="button">
+                      Archive
+                    </button>
+                    <button id="kill-button" class="action-button action-button-ink" type="button">
+                      Kill Session
+                    </button>
+                  </div>
+
+                  <p class="operator-hint">
+                    "Resume + Reset Window" clears the recent event trail before
+                    reopening the session, adds a short cooldown, and requires a
+                    changed-plan token on the next model call.
+                  </p>
+
+                  <div id="action-feedback" class="action-feedback"></div>
+                </section>
+              </div>
+
+              <section class="timeline-card">
+                <div class="section-heading">
+                  <span class="eyebrow">Recent Timeline</span>
+                  <h3>Session events in sequence</h3>
+                </div>
+
+                <div id="timeline" class="timeline"></div>
+              </section>
+            </section>
+          </main>
+        </div>
+      </section>
+    </div>
+
+    <script src="/assets/dashboard.js"></script>
+  </body>
+</html>

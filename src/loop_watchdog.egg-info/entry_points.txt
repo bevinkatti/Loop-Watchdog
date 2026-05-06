@@ -1,0 +1,2 @@
+[console_scripts]
+loop-watchdog = loop_watchdog.cli:app

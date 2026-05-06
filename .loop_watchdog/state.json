@@ -1,0 +1,155 @@
+{
+  "version": 1,
+  "sessions": [
+    {
+      "session_id": "loop_watchdog:abhishek:workspace",
+      "created_at": "2026-04-30T13:04:32.658828Z",
+      "updated_at": "2026-04-30T13:07:16.073098Z",
+      "events": [
+        {
+          "session_id": "loop_watchdog:abhishek:workspace",
+          "kind": "file_edit",
+          "summary": "Detected local file edits while Codex session was active.",
+          "files": [
+            "src/loop_watchdog/launcher.py"
+          ],
+          "metadata": {
+            "source": "loop-watchdog codex",
+            "changed_file_count": 1,
+            "workspace": "E:\\VsCode_\\loop_Watchdog"
+          },
+          "event_id": "efd630ed-6200-4815-8aca-773798723a1d",
+          "created_at": "2026-04-30T13:04:32.660832Z",
+          "fingerprint": "file_edit detected local file edits while codex session was active. src/loop_watchdog/launcher.py",
+          "error_signature": ""
+        },
+        {
+          "session_id": "loop_watchdog:abhishek:workspace",
+          "kind": "file_edit",
+          "summary": "Detected local file edits while Codex session was active.",
+          "files": [
+            "src/loop_watchdog/cli.py"
+          ],
+          "metadata": {
+            "source": "loop-watchdog codex",
+            "changed_file_count": 1,
+            "workspace": "E:\\VsCode_\\loop_Watchdog"
+          },
+          "event_id": "fcb36650-81f2-4024-bcd3-19ecbc6d3717",
+          "created_at": "2026-04-30T13:05:03.234286Z",
+          "fingerprint": "file_edit detected local file edits while codex session was active. src/loop_watchdog/cli.py",
+          "error_signature": ""
+        },
+        {
+          "session_id": "loop_watchdog:abhishek:workspace",
+          "kind": "file_edit",
+          "summary": "Detected local file edits while Codex session was active.",
+          "files": [
+            "src/loop_watchdog/cli.py"
+          ],
+          "metadata": {
+            "source": "loop-watchdog codex",
+            "changed_file_count": 1,
+            "workspace": "E:\\VsCode_\\loop_Watchdog"
+          },
+          "event_id": "9301a58e-285b-4c1d-af77-3a9cc8c3f665",
+          "created_at": "2026-04-30T13:05:16.641019Z",
+          "fingerprint": "file_edit detected local file edits while codex session was active. src/loop_watchdog/cli.py",
+          "error_signature": ""
+        },
+        {
+          "session_id": "loop_watchdog:abhishek:workspace",
+          "kind": "file_edit",
+          "summary": "Detected local file edits while Codex session was active.",
+          "files": [
+            "tests/test_launcher.py"
+          ],
+          "metadata": {
+            "source": "loop-watchdog codex",
+            "changed_file_count": 1,
+            "workspace": "E:\\VsCode_\\loop_Watchdog"
+          },
+          "event_id": "baab900e-08bc-4917-a5a6-ed2a5710328e",
+          "created_at": "2026-04-30T13:05:30.013267Z",
+          "fingerprint": "file_edit detected local file edits while codex session was active. tests/test_launcher.py",
+          "error_signature": ""
+        },
+        {
+          "session_id": "loop_watchdog:abhishek:workspace",
+          "kind": "file_edit",
+          "summary": "Detected local file edits while Codex session was active.",
+          "files": [
+            "tests/test_launcher.py"
+          ],
+          "metadata": {
+            "source": "loop-watchdog codex",
+            "changed_file_count": 1,
+            "workspace": "E:\\VsCode_\\loop_Watchdog"
+          },
+          "event_id": "cf0a62ea-873e-45a3-961d-18dbcbc77cdb",
+          "created_at": "2026-04-30T13:05:39.344861Z",
+          "fingerprint": "file_edit detected local file edits while codex session was active. tests/test_launcher.py",
+          "error_signature": ""
+        },
+        {
+          "session_id": "loop_watchdog:abhishek:workspace",
+          "kind": "file_edit",
+          "summary": "Detected local file edits while Codex session was active.",
+          "files": [
+            "README.md"
+          ],
+          "metadata": {
+            "source": "loop-watchdog codex",
+            "changed_file_count": 1,
+            "workspace": "E:\\VsCode_\\loop_Watchdog"
+          },
+          "event_id": "d4d7a3a1-2275-402e-b310-8995b12b0227",
+          "created_at": "2026-04-30T13:06:45.229734Z",
+          "fingerprint": "file_edit detected local file edits while codex session was active. readme.md",
+          "error_signature": ""
+        },
+        {
+          "session_id": "loop_watchdog:abhishek:workspace",
+          "kind": "file_edit",
+          "summary": "Detected local file edits while Codex session was active.",
+          "files": [
+            "README.md"
+          ],
+          "metadata": {
+            "source": "loop-watchdog codex",
+            "changed_file_count": 1,
+            "workspace": "E:\\VsCode_\\loop_Watchdog"
+          },
+          "event_id": "7d57e7a3-f3f1-44bf-a239-8f95d4e2a588",
+          "created_at": "2026-04-30T13:06:55.564125Z",
+          "fingerprint": "file_edit detected local file edits while codex session was active. readme.md",
+          "error_signature": ""
+        },
+        {
+          "session_id": "loop_watchdog:abhishek:workspace",
+          "kind": "file_edit",
+          "summary": "Detected local file edits while Codex session was active.",
+          "files": [
+            "tests/test_launcher.py"
+          ],
+          "metadata": {
+            "source": "loop-watchdog codex",
+            "changed_file_count": 1,
+            "workspace": "E:\\VsCode_\\loop_Watchdog"
+          },
+          "event_id": "3e6dbba4-97ad-4064-a6b0-ad40069c2f50",
+          "created_at": "2026-04-30T13:07:16.073098Z",
+          "fingerprint": "file_edit detected local file edits while codex session was active. tests/test_launcher.py",
+          "error_signature": ""
+        }
+      ],
+      "incident": null,
+      "acknowledged_at": null,
+      "acknowledged_note": "",
+      "archived": false,
+      "cooldown_until": null,
+      "required_plan_digest": "",
+      "required_plan_preview": ""
+    }
+  ]
+}

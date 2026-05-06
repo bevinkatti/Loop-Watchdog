@@ -1,0 +1,8 @@
+WATCHDOG_INGEST_TOKEN=replace-me
+WATCHDOG_HMAC_SECRET=replace-me
+WATCHDOG_DASHBOARD_TOKEN=replace-me
+SLACK_WEBHOOK_URL=https://hooks.slack.com/services/replace/me
+RESEND_API_KEY=re_replace_me
+ALERT_EMAIL_TO=alerts@example.com
+ALERT_EMAIL_FROM=Loop Watchdog <alerts@example.com>
+

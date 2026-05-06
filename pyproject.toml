@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "loop-watchdog"
+version = "0.1.0"
+description = "Runaway AI coding session kill switch and alerting proxy."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+  { name = "Loop Watchdog" }
+]
+dependencies = [
+  "fastapi>=0.115.0,<1.0.0",
+  "httpx>=0.28.0,<1.0.0",
+  "jinja2>=3.1.0,<4.0.0",
+  "pydantic>=2.10.0,<3.0.0",
+  "pydantic-settings>=2.7.0,<3.0.0",
+  "typer>=0.15.0,<1.0.0",
+  "uvicorn>=0.34.0,<1.0.0"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.0,<9.0.0",
+  "pytest-asyncio>=0.25.0,<1.0.0",
+  "ruff>=0.9.0,<1.0.0"
+]
+
+[project.scripts]
+loop-watchdog = "loop_watchdog.cli:app"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+loop_watchdog = ["static/*", "templates/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "N"]

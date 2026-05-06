@@ -1,0 +1,230 @@
+Metadata-Version: 2.4
+Name: loop-watchdog
+Version: 0.1.0
+Summary: Runaway AI coding session kill switch and alerting proxy.
+Author: Loop Watchdog
+License: MIT
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: fastapi<1.0.0,>=0.115.0
+Requires-Dist: httpx<1.0.0,>=0.28.0
+Requires-Dist: jinja2<4.0.0,>=3.1.0
+Requires-Dist: pydantic<3.0.0,>=2.10.0
+Requires-Dist: pydantic-settings<3.0.0,>=2.7.0
+Requires-Dist: typer<1.0.0,>=0.15.0
+Requires-Dist: uvicorn<1.0.0,>=0.34.0
+Provides-Extra: dev
+Requires-Dist: pytest<9.0.0,>=8.3.0; extra == "dev"
+Requires-Dist: pytest-asyncio<1.0.0,>=0.25.0; extra == "dev"
+Requires-Dist: ruff<1.0.0,>=0.9.0; extra == "dev"
+Dynamic: license-file
+
+# Loop Watchdog
+Loop Watchdog is a runaway-agent kill switch for AI coding sessions.  
+
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/downloads/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-proxy%20core-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflareworkers&logoColor=white)](https://workers.cloudflare.com/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-111111.svg)](LICENSE)
+[![Local First](https://img.shields.io/badge/local--first-kill%20switch-1f6feb)](#architecture)
+[![Built For AI Agents](https://img.shields.io/badge/AI%20agents-loop%20watchdog-ea4aaa)](#what-the-proxy-detects)
+
+ It sits in front of an OpenAI-compatible model endpoint, watches the session for repeated fix-break behavior, pauses the next model call before more credits burn, and pushes a structured alert to Slack, email, or your own control plane.
+
+The first version in this repository ships two real pieces:
+
+- A local Python watchdog proxy that coding agents can target as their `base_url`
+- A Cloudflare Worker control plane that ingests incidents, stores them in D1, and fans them out to Slack or email
+
+## Why This Exists
+
+The failure mode is simple:
+
+1. An agent edits a file
+2. Tests fail in a similar way
+3. The agent retries with nearly the same patch
+4. Tokens keep burning while the session makes no meaningful progress
+
+Loop Watchdog turns that failure mode into an explicit product boundary. It tracks repeated request patterns, repeated file churn, repeating error families, and edit-error oscillation. When the score crosses a threshold, the session is paused and an incident is raised.
+
+## Architecture
+
+```text
+IDE agent / CLI wrapper
+        |
+        v
+Loop Watchdog proxy (FastAPI)
+        |
+        +--> in-memory session graph
+        |        |
+        |        +--> loop detector
+        |        +--> pause / resume / kill state
+        |
+        +--> incident dispatcher
+        |        |
+        |        +--> Cloudflare Worker
+        |                 |
+        |                 +--> D1 incident store
+        |                 +--> Slack webhook
+        |                 +--> Resend email
+        |
+        +--> upstream provider (Gemini / OpenAI-compatible endpoint)
+```
+
+## What The Proxy Detects
+
+- High-overlap retries across adjacent agent requests
+- The same files being churned repeatedly with no success signal
+- Repeating failure signatures after normalization
+- Edit -> error -> edit -> error oscillation on the same files
+- Growing request volume without a passing test or explicit recovery event
+
+The detector is intentionally rule-based for v1. It is deterministic, cheap to run locally, and easy to tune from real operator feedback.
+
+## Quick Start
+
+### 1. Install the Python service
+
+```bash
+python -m venv .venv
+. .venv/Scripts/activate
+pip install -e .
+```
+
+### 2. Configure the local proxy
+
+Create `.env` from the example values below:
+
+```env
+LOOP_WATCHDOG_UPSTREAM_BASE_URL=https://generativelanguage.googleapis.com
+LOOP_WATCHDOG_UPSTREAM_API_KEY=replace-me
+LOOP_WATCHDOG_UPSTREAM_AUTH_MODE=x-api-key
+LOOP_WATCHDOG_ALERT_WEBHOOK_URL=https://your-worker.example.workers.dev/api/incidents
+LOOP_WATCHDOG_ALERT_HMAC_SECRET=replace-me
+LOOP_WATCHDOG_PERSISTENCE_PATH=.loop_watchdog/state.json
+LOOP_WATCHDOG_PAUSE_SCORE_THRESHOLD=4.8
+```
+
+### 3. Run the watchdog
+
+```bash
+loop-watchdog serve --host 127.0.0.1 --port 8787
+```
+
+### 4. Open the landing page
+
+```text
+http://127.0.0.1:8787/
+```
+
+The landing page gives you a polished product surface plus a one-click demo seeding flow.
+
+### 5. Open the operator dashboard
+
+```text
+http://127.0.0.1:8787/dashboard
+```
+
+The dashboard shows live sessions, paused incidents, recent event timelines, and operator controls for acknowledge, resume, reset, archive, and kill actions.
+
+### 6. Point your agent to the proxy
+
+Any tool that supports an OpenAI-compatible `base_url` can target:
+
+```text
+http://127.0.0.1:8787/v1
+```
+
+For best detection, send a stable session identifier on each request:
+
+```text
+X-Loop-Session: repo-name:user-or-agent:branch
+```
+
+If a resumed session requires a changed plan, send it on the next request as either:
+
+```text
+X-Loop-Plan: rewritten plan text
+```
+
+or:
+
+```json
+{
+  "metadata": {
+    "loop_watchdog_plan": "rewritten plan text"
+  }
+}
+```
+
+### 7. Optionally emit richer local events
+
+The proxy works from request history alone, but it gets much better when an IDE extension or wrapper also reports file edits and test failures:
+
+```http
+POST /v1/watchdog/events
+Content-Type: application/json
+
+{
+  "session_id": "repo:user:branch",
+  "kind": "file_edit",
+  "summary": "Retrying parser fix after test failure",
+  "files": ["src/parser.py", "tests/test_parser.py"],
+  "metadata": {
+    "diff_excerpt": "@@ parse_user @@",
+    "attempt": 4
+  }
+}
+```
+
+## Watchdog Endpoints
+
+- `GET /`
+- `GET /dashboard`
+- `GET /v1/watchdog/dashboard`
+- `POST /v1/watchdog/demo/seed`
+- `POST /v1/chat/completions`
+- `POST /v1/responses`
+- `POST /v1/watchdog/events`
+- `GET /v1/watchdog/sessions`
+- `GET /v1/watchdog/sessions/{session_id}/events`
+- `GET /v1/watchdog/status/{session_id}`
+- `POST /v1/watchdog/sessions/{session_id}/acknowledge`
+- `POST /v1/watchdog/sessions/{session_id}/resume`
+- `POST /v1/watchdog/sessions/{session_id}/archive`
+- `POST /v1/watchdog/sessions/{session_id}/kill`
+- `GET /healthz`
+
+## Cloudflare Worker
+
+The Worker receives incidents from the proxy, stores them in D1, and can fan them out to Slack and email.
+
+### Worker setup
+
+```bash
+cd apps/control-plane
+npm install
+npm run db:migrate
+npm run deploy
+```
+
+Environment variables are documented in [apps/control-plane/.dev.vars.example](</E:/VsCode_/loop_Watchdog/apps/control-plane/.dev.vars.example>).
+
+## Development
+
+```bash
+python -m pytest
+python -m compileall src tests
+```
+
+## Design Notes
+
+- The proxy is intentionally local-first. A developer can run it without creating a cloud account.
+- Incidents are serialized with enough context to power a future dashboard without reworking the schema.
+- The detector is built around explainable signals so the pause decision can be surfaced to humans without hand-waving.
+- Session state persists locally by default, so incidents and operator notes survive a restart.
+- The dashboard can enforce a changed-plan token before a resumed session is allowed to spend again.
+- The landing page can seed believable demo sessions so the product is explorable without manual setup.
+
+The next product layer after this repo is a native editor wrapper that emits richer diff and test telemetry automatically. This codebase is designed so that layer can plug into the existing event API without replacing the core.

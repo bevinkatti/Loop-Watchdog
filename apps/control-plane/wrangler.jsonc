@@ -1,0 +1,13 @@
+{
+  "name": "loop-watchdog-control-plane",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-04-29",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "loop_watchdog",
+      "database_id": "replace-me"
+    }
+  ]
+}
+

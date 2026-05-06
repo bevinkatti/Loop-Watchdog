@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ app_name }}</title>
+    <link rel="stylesheet" href="/assets/landing.css" />
+  </head>
+  <body>
+    <div class="landing-glow glow-a"></div>
+    <div class="landing-glow glow-b"></div>
+
+    <div class="landing-shell">
+      <header class="landing-nav">
+        <div class="landing-brand">
+          <div class="landing-mark" aria-hidden="true"></div>
+          <div>
+            <span class="landing-brand-label">Loop Watchdog</span>
+            <span class="landing-brand-subtitle">Agent kill-switch console</span>
+          </div>
+        </div>
+
+        <div class="landing-nav-actions">
+          <a class="landing-nav-link" href="/dashboard">Open Dashboard</a>
+          <a class="landing-nav-link" href="/docs">API Docs</a>
+        </div>
+      </header>
+
+      <main class="landing-main">
+        <section class="landing-hero">
+          <div class="landing-chip">Protection for autonomous coding agents</div>
+          <h1>
+            Detect repeat-fix loops,
+            <span>pause the burn,</span>
+            keep humans in control.
+          </h1>
+          <p>
+            Loop Watchdog sits between your coding agent and the model provider,
+            catches churn before the next expensive retry, and gives operators a
+            live control room for recovery.
+          </p>
+
+          <div class="landing-actions">
+            <a class="landing-button landing-button-primary" href="/dashboard">Launch Live Dashboard</a>
+            <button id="guided-trial-button" class="landing-button landing-button-tertiary" type="button">
+              Start Guided Trial
+            </button>
+          </div>
+
+          <div id="trial-feedback" class="landing-feedback"></div>
+        </section>
+
+        <section class="landing-proof">
+          <article class="proof-card">
+            <span class="proof-label">Real-user trial</span>
+            <strong>One-click guided session</strong>
+            <p>Generate a realistic incident and jump directly into the dashboard focused on that session.</p>
+          </article>
+
+          <article class="proof-card">
+            <span class="proof-label">Operator controls</span>
+            <strong>Resume, cooldown, acknowledge, archive</strong>
+            <p>Recover safely instead of blindly letting the agent keep retrying.</p>
+          </article>
+
+          <article class="proof-card">
+            <span class="proof-label">Persistent memory</span>
+            <strong>Sessions survive restarts</strong>
+            <p>The local proxy keeps the timeline, incidents, and operator state on disk.</p>
+          </article>
+
+          <article class="proof-card">
+            <span class="proof-label">Guided evaluation</span>
+            <strong>Start from a clean live view</strong>
+            <p>Open the real dashboard with no fake workspace noise, then launch a guided incident only when you want it.</p>
+          </article>
+        </section>
+
+        <section class="landing-showcase">
+          <div class="showcase-frame">
+            <div class="showcase-panel">
+              <div class="showcase-panel-top">
+                <div class="showcase-status">Live product surface</div>
+                <div class="showcase-actions">
+                  <span></span><span></span><span></span>
+                </div>
+              </div>
+
+              <div class="showcase-grid">
+                <div class="showcase-sidebar">
+                  <div class="showcase-block">
+                    <div class="showcase-block-label">Paused sessions</div>
+                    <div class="showcase-block-value">1</div>
+                  </div>
+                  <div class="showcase-block muted">
+                    <div class="showcase-session-title">repo:agent:main</div>
+                    <div class="showcase-session-copy">Rounding mismatch repeated 4x</div>
+                  </div>
+                  <div class="showcase-block muted">
+                    <div class="showcase-session-title">trial:guided-session</div>
+                    <div class="showcase-session-copy">Optional guided evaluation incident</div>
+                  </div>
+                </div>
+
+                <div class="showcase-main">
+                  <div class="showcase-incident">
+                    <span class="showcase-pill">Paused incident</span>
+                    <h2>Receipt total loop detected before the next retry.</h2>
+                    <p>
+                      The same files were touched repeatedly, the same failure signature kept
+                      returning, and the watchdog blocked the next model call.
+                    </p>
+                  </div>
+
+                  <div class="showcase-timeline">
+                    <div class="timeline-line"></div>
+                    <div class="timeline-step">
+                      <strong>file_edit</strong>
+                      <span>Retrying receipt patch against checkout parser</span>
+                    </div>
+                    <div class="timeline-step">
+                      <strong>test_failure</strong>
+                      <span>AssertionError: expected 124.20 got 124.19</span>
+                    </div>
+                    <div class="timeline-step">
+                      <strong>manual_resume</strong>
+                      <span>Require changed plan and cooldown before next run</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/assets/landing.js"></script>
+  </body>
+</html>
