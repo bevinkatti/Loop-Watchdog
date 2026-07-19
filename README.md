@@ -1,3 +1,5 @@
+![Header](screenshots/head.png)
+
 #  𓃡 Loop Watchdog
 Loop Watchdog is a runaway-agent kill switch for looped AI coding sessions.  
 
@@ -9,7 +11,7 @@ Loop Watchdog is a runaway-agent kill switch for looped AI coding sessions.
 [![Built For AI Agents](https://img.shields.io/badge/AI%20agents-loop%20watchdog-ea4aaa)](#what-the-proxy-detects)
 
  It sits in front of an OpenAI-compatible model endpoint, watches the session for repeated fix-break behavior, pauses the next model call before more credits burn, and pushes a structured alert to Slack, email, or your own control plane.
-![Header](screenshots/head.png)
+---
 The first version in this repository ships two real pieces:
 
 - A local Python watchdog proxy that coding agents can target as their `base_url`
