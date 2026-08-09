@@ -4,7 +4,7 @@ from collections import Counter, deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 import hashlib
-from pathlib import Path
+
 from threading import RLock
 
 from .config import WatchdogSettings
@@ -27,7 +27,7 @@ from .models import (
     WatchdogEvent,
     WatchdogEventCreate,
 )
-
+from .storage import JsonSessionStore, SessionStore
 
 @dataclass
 class SessionState:
@@ -46,14 +46,23 @@ class SessionState:
 
 
 class WatchdogStore:
-    def __init__(self, settings: WatchdogSettings, detector: LoopDetector) -> None:
+    
+    def __init__(
+        self,
+        settings: WatchdogSettings,
+        detector: LoopDetector,
+        store: SessionStore | None = None,
+    ) -> None:
         self.settings = settings
         self.detector = detector
         self._sessions: dict[str, SessionState] = {}
         self._lock = RLock()
-        self._persistence_path = Path(settings.persistence_path)
+        self._store_backend = (
+            store if store is not None else JsonSessionStore(settings.persistence_path)
+        )
         if self.settings.persistence_enabled:
             self._load_state()
+            
 
     def record_event(self, payload: WatchdogEventCreate) -> tuple[WatchdogEvent, LoopIncident | None]:
         with self._lock:
@@ -492,13 +501,9 @@ class WatchdogStore:
             self._load_state_locked()
 
     def _load_state_locked(self) -> None:
-        if not self._persistence_path.exists():
-            return
-        try:
-            payload = PersistedStore.model_validate_json(self._persistence_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return
+        payload = self._store_backend.load()
         self._sessions = {}
+    
         for item in payload.sessions:
             state = SessionState(
                 session_id=item.session_id,
@@ -540,11 +545,7 @@ class WatchdogStore:
                 for session in self._sessions.values()
             ]
         )
-        self._persistence_path.parent.mkdir(parents=True, exist_ok=True)
-        target = self._persistence_path
-        temp = target.with_suffix(target.suffix + ".tmp")
-        temp.write_text(store.model_dump_json(indent=2), encoding="utf-8")
-        temp.replace(target)
+        self._store_backend.save(store)
 
     def _prune_seed_demo_sessions_locked(self) -> bool:
         seed_demo_session_ids = [
