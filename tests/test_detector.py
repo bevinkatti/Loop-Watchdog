@@ -11,7 +11,9 @@ def test_detector_pauses_repeated_fix_break_pattern() -> None:
     )
     detector = LoopDetector(settings)
     events = [
-        WatchdogEvent(session_id="demo", kind=EventKind.AGENT_REQUEST, summary="Fix parser test failure"),
+        WatchdogEvent(
+            session_id="demo", kind=EventKind.AGENT_REQUEST, summary="Fix parser test failure"
+        ),
         WatchdogEvent(
             session_id="demo",
             kind=EventKind.FILE_EDIT,
@@ -26,7 +28,9 @@ def test_detector_pauses_repeated_fix_break_pattern() -> None:
             metadata={"error": "AssertionError: expected name, got NoneType"},
             error_signature="assertionerror expected name got nonetype",
         ),
-        WatchdogEvent(session_id="demo", kind=EventKind.AGENT_REQUEST, summary="Fix parser test failure"),
+        WatchdogEvent(
+            session_id="demo", kind=EventKind.AGENT_REQUEST, summary="Fix parser test failure"
+        ),
         WatchdogEvent(
             session_id="demo",
             kind=EventKind.FILE_EDIT,
@@ -41,7 +45,9 @@ def test_detector_pauses_repeated_fix_break_pattern() -> None:
             metadata={"error": "AssertionError: expected name, got NoneType"},
             error_signature="assertionerror expected name got nonetype",
         ),
-        WatchdogEvent(session_id="demo", kind=EventKind.AGENT_REQUEST, summary="Fix parser test failure"),
+        WatchdogEvent(
+            session_id="demo", kind=EventKind.AGENT_REQUEST, summary="Fix parser test failure"
+        ),
     ]
 
     decision = detector.evaluate(events)
@@ -93,4 +99,3 @@ def test_detector_allows_progress_when_success_arrives() -> None:
     decision = detector.evaluate(events)
 
     assert decision.paused is False
-

@@ -1,3 +1,5 @@
+from datetime import UTC
+
 import httpx
 from fastapi.testclient import TestClient
 
@@ -233,7 +235,10 @@ def test_resume_with_changed_plan_requires_token() -> None:
             "note": "Human rewrote the plan.",
             "clear_recent_events": True,
             "cooldown_seconds": 0,
-            "changed_plan": "Reproduce with tax-inclusive totals and rewrite rounding at the aggregator boundary.",
+            "changed_plan": (
+                "Reproduce with tax-inclusive totals and rewrite "
+                "rounding at the aggregator boundary."
+            ),
         },
     )
 
@@ -249,7 +254,10 @@ def test_resume_with_changed_plan_requires_token() -> None:
         "/v1/chat/completions",
         headers={
             "X-Loop-Session": "plan:demo",
-            "X-Loop-Plan": "Reproduce with tax-inclusive totals and rewrite rounding at the aggregator boundary.",
+            "X-Loop-Plan": (
+                "Reproduce with tax-inclusive totals and rewrite "
+                "rounding at the aggregator boundary."
+            ),
         },
         json={"messages": [{"role": "user", "content": "Try a new approach now"}]},
     )
@@ -257,6 +265,9 @@ def test_resume_with_changed_plan_requires_token() -> None:
 
 
 def test_legacy_seed_demo_sessions_are_pruned_on_reload(tmp_path) -> None:
+    import json
+    from datetime import datetime, timedelta
+
     persistence_path = tmp_path / "state.json"
     settings = WatchdogSettings(
         upstream_base_url="https://upstream.example.com",
@@ -265,42 +276,46 @@ def test_legacy_seed_demo_sessions_are_pruned_on_reload(tmp_path) -> None:
     )
     proxy = UpstreamProxy(settings, transport=_transport())
 
-    with persistence_path.open("w", encoding="utf-8") as handle:
-        handle.write(
-            """
-{
-  "version": 1,
-  "sessions": [
-    {
-      "session_id": "demo:payments:main",
-      "created_at": "2026-04-29T18:00:00Z",
-      "updated_at": "2026-04-29T18:10:00Z",
-      "events": [],
-      "incident": null,
-      "acknowledged_at": null,
-      "acknowledged_note": "",
-      "archived": false,
-      "cooldown_until": null,
-      "required_plan_digest": "",
-      "required_plan_preview": ""
-    },
-    {
-      "session_id": "real:user:main",
-      "created_at": "2026-04-29T19:00:00Z",
-      "updated_at": "2026-04-29T19:05:00Z",
-      "events": [],
-      "incident": null,
-      "acknowledged_at": null,
-      "acknowledged_note": "",
-      "archived": false,
-      "cooldown_until": null,
-      "required_plan_digest": "",
-      "required_plan_preview": ""
+    # FIX: Use dynamic dates relative to now() so the 'real' session
+    # is not expired by the default 2-hour TTL (7200 seconds).
+    now = datetime.now(UTC)
+    recent_time = (now - timedelta(minutes=5)).isoformat().replace("+00:00", "Z")
+    older_time = (now - timedelta(minutes=10)).isoformat().replace("+00:00", "Z")
+
+    state_payload = {
+        "version": 1,
+        "sessions": [
+            {
+                "session_id": "demo:payments:main",
+                "created_at": older_time,
+                "updated_at": older_time,
+                "events": [],
+                "incident": None,
+                "acknowledged_at": None,
+                "acknowledged_note": "",
+                "archived": False,
+                "cooldown_until": None,
+                "required_plan_digest": "",
+                "required_plan_preview": "",
+            },
+            {
+                "session_id": "real:user:main",
+                "created_at": recent_time,
+                "updated_at": recent_time,
+                "events": [],
+                "incident": None,
+                "acknowledged_at": None,
+                "acknowledged_note": "",
+                "archived": False,
+                "cooldown_until": None,
+                "required_plan_digest": "",
+                "required_plan_preview": "",
+            },
+        ],
     }
-  ]
-}
-            """.strip()
-        )
+
+    with persistence_path.open("w", encoding="utf-8") as handle:
+        handle.write(json.dumps(state_payload, indent=2))
 
     reloaded_client = TestClient(create_app(settings=settings, upstream=proxy))
     snapshot = reloaded_client.get("/v1/watchdog/dashboard?include_archived=true")

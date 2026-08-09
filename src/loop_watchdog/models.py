@@ -1,18 +1,19 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 def utc_now() -> datetime:
     return datetime.now(UTC)
 
 
-class EventKind(str, Enum):
+class EventKind(StrEnum):
+    # V1 Events
     AGENT_REQUEST = "agent_request"
     AGENT_RESPONSE = "agent_response"
     FILE_EDIT = "file_edit"
@@ -26,13 +27,90 @@ class EventKind(str, Enum):
     MANUAL_ARCHIVE = "manual_archive"
     SESSION_NOTE = "session_note"
 
+    # V2 Roadmap Events
+    TOOL_CALL = "tool_call"
+    TOOL_RESULT = "tool_result"
+    FILE_CREATE = "file_create"
+    FILE_DELETE = "file_delete"
+    COMMAND_START = "command_start"
+    COMMAND_END = "command_end"
+    TEST_START = "test_start"
+    BUILD_START = "build_start"
+    BUILD_SUCCESS = "build_success"
+    BUILD_FAILURE = "build_failure"
+    LINT_PASS = "lint_pass"
+    LINT_FAILURE = "lint_failure"
+    GIT_DIFF = "git_diff"
+    GIT_COMMIT = "git_commit"
+    USER_INTERVENTION = "user_intervention"
+    TASK_STARTED = "task_started"
+    TASK_PROGRESS = "task_progress"
+    TASK_COMPLETED = "task_completed"
+
+    @property
+    def is_v1(self) -> bool:
+        return self in {
+            self.AGENT_REQUEST,
+            self.AGENT_RESPONSE,
+            self.FILE_EDIT,
+            self.PATCH_APPLY,
+            self.TOOL_ERROR,
+            self.TEST_FAILURE,
+            self.TEST_PASS,
+            self.MANUAL_RESUME,
+            self.MANUAL_KILL,
+            self.MANUAL_ACKNOWLEDGE,
+            self.MANUAL_ARCHIVE,
+            self.SESSION_NOTE,
+        }
+
+    @property
+    def is_progress(self) -> bool:
+        return self in {self.TEST_PASS, self.BUILD_SUCCESS, self.LINT_PASS, self.TASK_COMPLETED}
+
+    @property
+    def is_failure(self) -> bool:
+        return self in {self.TOOL_ERROR, self.TEST_FAILURE, self.BUILD_FAILURE, self.LINT_FAILURE}
+
+    @property
+    def is_file_modification(self) -> bool:
+        return self in {self.FILE_EDIT, self.PATCH_APPLY, self.FILE_CREATE, self.FILE_DELETE}
+
+
+class SessionIdentity(BaseModel):
+    watchdog_session_id: str = Field(min_length=1)
+    repository: str = ""
+    workspace: str = ""
+    branch: str = ""
+    agent: str = ""
+    agent_session_id: str = ""
+    task_id: str = ""
+
 
 class WatchdogEventCreate(BaseModel):
-    session_id: str = Field(min_length=1)
+    schema_version: int = Field(default=1, ge=1)
+    session_id: str | None = Field(
+        default=None, description="Legacy session ID. Use identity instead."
+    )
+    identity: SessionIdentity | None = None
     kind: EventKind
     summary: str = ""
     files: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _resolve_identity(self) -> WatchdogEventCreate:
+        if self.identity is None:
+            if not self.session_id:
+                raise ValueError("Either session_id or identity must be provided.")
+            self.identity = SessionIdentity(
+                watchdog_session_id=self.session_id,
+                agent_session_id=self.session_id,
+                agent="legacy",
+            )
+        # Ensure session_id always reflects the canonical watchdog ID for backwards compat
+        self.session_id = self.identity.watchdog_session_id
+        return self
 
 
 class WatchdogEvent(WatchdogEventCreate):
@@ -55,6 +133,7 @@ class DetectorDecision(BaseModel):
 class LoopIncident(BaseModel):
     incident_id: str = Field(default_factory=lambda: str(uuid4()))
     session_id: str
+    identity: SessionIdentity | None = None
     created_at: datetime = Field(default_factory=utc_now)
     score: float
     reasons: list[str]
@@ -67,6 +146,7 @@ class LoopIncident(BaseModel):
 
 class SessionStatus(BaseModel):
     session_id: str
+    identity: SessionIdentity | None = None
     paused: bool
     event_count: int
     last_event_at: datetime | None = None
@@ -101,6 +181,7 @@ class SessionMetrics(BaseModel):
 
 class SessionSnapshot(BaseModel):
     session_id: str
+    identity: SessionIdentity | None = None
     paused: bool
     created_at: datetime
     updated_at: datetime
@@ -137,6 +218,7 @@ class IncidentEnvelope(BaseModel):
 
 class PersistedSessionState(BaseModel):
     session_id: str
+    identity: SessionIdentity | None = None
     created_at: datetime
     updated_at: datetime
     events: list[WatchdogEvent] = Field(default_factory=list)

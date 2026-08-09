@@ -66,7 +66,9 @@ def _run_codex_command(
     if dry_run:
         if auto_start_server:
             server_context = build_server_launch_context(proxy_url)
-            typer.echo(f"Server: would start on http://{server_context.host}:{server_context.port}/")
+            typer.echo(
+                f"Server: would start on http://{server_context.host}:{server_context.port}/"
+            )
         typer.echo(shlex.join(launch_context.command))
         return
 
@@ -74,7 +76,9 @@ def _run_codex_command(
         if auto_start_server:
             server_started, server_context = ensure_local_server_running(proxy_url)
             state_label = "started" if server_started else "running"
-            typer.echo(f"Server: {state_label} on http://{server_context.host}:{server_context.port}/")
+            typer.echo(
+                f"Server: {state_label} on http://{server_context.host}:{server_context.port}/"
+            )
         raise typer.Exit(
             code=launch_codex(
                 proxy_url=proxy_url,

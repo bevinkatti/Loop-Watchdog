@@ -8,7 +8,9 @@ from .config import WatchdogSettings
 
 
 class UpstreamProxy:
-    def __init__(self, settings: WatchdogSettings, transport: httpx.AsyncBaseTransport | None = None) -> None:
+    def __init__(
+        self, settings: WatchdogSettings, transport: httpx.AsyncBaseTransport | None = None
+    ) -> None:
         self.settings = settings
         self.transport = transport
 
@@ -38,7 +40,9 @@ class UpstreamProxy:
             follow_redirects=True,
             transport=self.transport,
         ) as client:
-            response = await client.post(path, json=payload, headers=self._build_headers(incoming_headers))
+            response = await client.post(
+                path, json=payload, headers=self._build_headers(incoming_headers)
+            )
             parsed: dict | list | str
             content_type = response.headers.get("content-type", "")
             if "application/json" in content_type:

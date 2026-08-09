@@ -8,12 +8,12 @@
 
 | Field              | Value                          |
 | ------------------ | ------------------------------ |
-| Current Phase      | Phase 0 — Engineering Baseline |
-| Current Task       | TASK-00                        |
-| Status             | IN PROGRESS                    |
-| Last Updated       | 2026-08-08                     |
-| Repository Version | V1 → V2 transition             |
-| Next Task          | TASK-00                        |
+| Current Phase      | Phase 2 — Detection Engine V2  |
+| Current Task       | TASK-05                        |
+| Status             | READY                          |
+| Last Updated       | 2026-08-09                     |
+| Repository Version | V2 (Phase 1 Complete)          |
+| Next Task          | TASK-05 — Error Normalization  |
 
 ---
 
@@ -21,14 +21,14 @@
 
 ### Phase 0 — Engineering Baseline
 
-* [ ] TASK-00 — Create Engineering Contract
+* [x] TASK-00 — Create Engineering Contract
 
 ### Phase 1 — Core Architecture
 
-* [ ] TASK-01 — Formalize Event Model
-* [ ] TASK-02 — Redesign Session Identity
-* [ ] TASK-03 — Event Protocol V1
-* [ ] TASK-04 — Persistence Abstraction
+* [x] TASK-01 — Formalize Event Model
+* [x] TASK-02 — Redesign Session Identity
+* [x] TASK-03 — Event Protocol V1 (LWEP)
+* [x] TASK-04 — Persistence Abstraction
 
 ### Phase 2 — Detection Engine V2
 
@@ -208,18 +208,25 @@ Warnings:
 
 ## Recent Changes
 
+### 2026-08-09
+
+* **TASK-01** — Expanded EventKind to 30 event categories with semantic properties. Added schema_version for forward compatibility. 13 tests.
+* **TASK-02** — Introduced SessionIdentity model with watchdog_session_id isolation key. Backwards-compatible legacy session_id mapping. 5 tests.
+* **TASK-03** — Created LWEP v1 protocol (LoopWatchdogEnvelope). Wired parse_event_payload into /v1/watchdog/events endpoint accepting both LWEP and legacy formats. Documented in docs/EVENT_PROTOCOL.md. 12 tests.
+* **TASK-04** — Introduced SessionStore abstraction with JsonSessionStore implementation. Dependency injection support for future SQLite backend. 7 tests.
+* Fixed flaky time-bomb test in test_api.py (hardcoded dates → dynamic).
+* Resolved all 44 ruff lint errors across codebase.
+* Phase 1 complete: 54 tests passing, lint clean, architecture verified.
+
 ### 2026-08-08
 
 * Created V2/V3 engineering roadmap.
 * Established task-based implementation strategy.
 * Established fresh-chat continuation protocol.
 
----
 
+---
 ## Next Task
 
 ```text
-TASK-01 — Formalize Event Model
-```
-
-When TASK-00 is complete, do not skip directly to later tasks unless a dependency requires it.
+PHASE 02 - Detection Engine V2

@@ -48,4 +48,6 @@ class AlertDispatcher:
                 )
                 response.raise_for_status()
         except httpx.HTTPError:
-            logger.exception("Failed to deliver loop incident alert for session=%s", incident.session_id)
+            logger.exception(
+                "Failed to deliver loop incident alert for session=%s", incident.session_id
+            )
