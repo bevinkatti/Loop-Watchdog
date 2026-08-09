@@ -238,9 +238,8 @@ def ensure_local_server_running(
         "stderr": subprocess.DEVNULL,
     }
     if os.name == "nt":
-        popen_kwargs["creationflags"] = (
-            getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(
+            subprocess, "CREATE_NEW_PROCESS_GROUP", 0
         )
 
     process = subprocess.Popen(**popen_kwargs)

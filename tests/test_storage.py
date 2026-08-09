@@ -13,8 +13,8 @@ from loop_watchdog.models import (
 from loop_watchdog.state import WatchdogStore
 from loop_watchdog.storage import JsonSessionStore
 
-
 # --- JsonSessionStore unit tests -----------------------------------------
+
 
 def test_json_store_load_missing_file_returns_empty(tmp_path) -> None:
     store = JsonSessionStore(tmp_path / "state.json")
@@ -54,6 +54,7 @@ def test_json_store_creates_parent_directories(tmp_path) -> None:
 
 
 # --- WatchdogStore integration tests -------------------------------------
+
 
 def test_watchdog_store_persists_and_reloads(tmp_path) -> None:
     path = tmp_path / "state.json"

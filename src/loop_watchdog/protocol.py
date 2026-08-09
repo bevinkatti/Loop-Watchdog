@@ -12,6 +12,7 @@ Two payload shapes are accepted by the ingestion endpoint:
 
 See ``docs/EVENT_PROTOCOL.md`` for the full specification.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -48,7 +49,7 @@ class LoopWatchdogEnvelope(BaseModel):
     event: ProtocolEventPayload
 
     @model_validator(mode="after")
-    def _validate_version(self) -> "LoopWatchdogEnvelope":
+    def _validate_version(self) -> LoopWatchdogEnvelope:
         if self.version not in SUPPORTED_PROTOCOL_VERSIONS:
             raise ValueError(
                 f"Unsupported LWEP version '{self.version}'. "

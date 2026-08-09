@@ -1,15 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 from collections import Counter, deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-import hashlib
-
 from threading import RLock
 
 from .config import WatchdogSettings
-from .loop_detector import normalize_text
-from .loop_detector import LoopDetector
+from .loop_detector import LoopDetector, normalize_text
 from .models import (
     DashboardSnapshot,
     DetectorDecision,
@@ -29,12 +27,15 @@ from .models import (
 )
 from .storage import JsonSessionStore, SessionStore
 
+
 @dataclass
 class SessionState:
     session_id: str
     created_at: datetime
     updated_at: datetime
-    identity: SessionIdentity = field(default_factory=lambda: SessionIdentity(watchdog_session_id="unknown"))
+    identity: SessionIdentity = field(
+        default_factory=lambda: SessionIdentity(watchdog_session_id="unknown")
+    )
     events: deque[WatchdogEvent] = field(default_factory=deque)
     incident: LoopIncident | None = None
     acknowledged_at: datetime | None = None
@@ -46,7 +47,6 @@ class SessionState:
 
 
 class WatchdogStore:
-    
     def __init__(
         self,
         settings: WatchdogSettings,
@@ -62,16 +62,19 @@ class WatchdogStore:
         )
         if self.settings.persistence_enabled:
             self._load_state()
-            
 
-    def record_event(self, payload: WatchdogEventCreate) -> tuple[WatchdogEvent, LoopIncident | None]:
+    def record_event(
+        self, payload: WatchdogEventCreate
+    ) -> tuple[WatchdogEvent, LoopIncident | None]:
         with self._lock:
             self._cleanup_expired_locked()
             now = datetime.now(UTC)
             identity = payload.identity or SessionIdentity(watchdog_session_id=payload.session_id)
             session = self._sessions.setdefault(
                 payload.session_id,
-                SessionState(session_id=payload.session_id, identity=identity, created_at=now, updated_at=now),
+                SessionState(
+                    session_id=payload.session_id, identity=identity, created_at=now, updated_at=now
+                ),
             )
             event = WatchdogEvent(
                 **payload.model_dump(),
@@ -165,7 +168,9 @@ class WatchdogStore:
                 paused_sessions=sum(1 for session in sessions if session.paused),
                 active_incidents=sum(1 for session in sessions if session.incident is not None),
                 total_events=sum(session.event_count for session in sessions),
-                acknowledged_sessions=sum(1 for session in sessions if session.acknowledged_at is not None),
+                acknowledged_sessions=sum(
+                    1 for session in sessions if session.acknowledged_at is not None
+                ),
                 archived_sessions=sum(1 for session in sessions if session.archived),
                 sessions=sessions,
             )
@@ -419,7 +424,10 @@ class WatchdogStore:
             return GuidedTrialResponse(
                 session_id=session_id,
                 status=status,
-                message="Guided trial session created. Open the dashboard to inspect the incident and operator controls.",
+                message=(
+                    "Guided trial session created. Open the dashboard "
+                    "to inspect the incident and operator controls."
+                ),
             )
 
     def clear_history(self) -> DashboardSnapshot:
@@ -503,7 +511,7 @@ class WatchdogStore:
     def _load_state_locked(self) -> None:
         payload = self._store_backend.load()
         self._sessions = {}
-    
+
         for item in payload.sessions:
             state = SessionState(
                 session_id=item.session_id,

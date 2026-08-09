@@ -12,6 +12,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
+
 from .alerting import AlertDispatcher
 from .config import WatchdogSettings, get_settings
 from .loop_detector import LoopDetector, normalize_text
@@ -181,9 +182,7 @@ def _response_event(
     )
 
 
-def _error_event(
-    identity: SessionIdentity, status_code: int, payload: Any
-) -> WatchdogEventCreate:
+def _error_event(identity: SessionIdentity, status_code: int, payload: Any) -> WatchdogEventCreate:
     if isinstance(payload, (dict, list)):
         text = json.dumps(payload, sort_keys=True)
     else:
@@ -271,9 +270,12 @@ def create_app(
         events = store.get_recent_events(session_id)
         return JSONResponse(
             status_code=200,
-            content={"session_id": session_id, "events": [event.model_dump(mode="json") for event in events]},
+            content={
+                "session_id": session_id,
+                "events": [event.model_dump(mode="json") for event in events],
+            },
         )
-    
+
     @app.post("/v1/watchdog/events")
     async def ingest_event(request: Request) -> JSONResponse:
         try:
@@ -379,7 +381,10 @@ async def _handle_proxy_request(
             status_code=423,
             content={
                 "error": {
-                    "message": "Loop Watchdog is holding this session in cooldown before another model call is allowed.",
+                    "message": (
+                        "Loop Watchdog is holding this session in cooldown "
+                        "before another model call is allowed."
+                    ),
                     "type": "loop_watchdog_cooldown",
                     "cooldown_until": cooldown_until.isoformat(),
                 }
@@ -395,12 +400,17 @@ async def _handle_proxy_request(
     x_loop_plan = request.headers.get("x-loop-plan")
     if not plan_hint and isinstance(x_loop_plan, str):
         plan_hint = x_loop_plan
-    if store.changed_plan_required(session_id) and not store.validate_and_consume_plan(session_id, plan_hint):
+    if store.changed_plan_required(session_id) and not store.validate_and_consume_plan(
+        session_id, plan_hint
+    ):
         return JSONResponse(
             status_code=428,
             content={
                 "error": {
-                    "message": "Loop Watchdog requires a changed plan token before this session can resume.",
+                    "message": (
+                        "Loop Watchdog requires a changed plan token "
+                        "before this session can resume."
+                    ),
                     "type": "loop_watchdog_plan_required",
                     "required_plan_preview": store.required_plan_preview(session_id),
                 }
@@ -413,7 +423,10 @@ async def _handle_proxy_request(
             status_code=409,
             content={
                 "error": {
-                    "message": "Loop Watchdog has paused this session before another model call was sent.",
+                    "message": (
+                        "Loop Watchdog has paused this session "
+                        "before another model call was sent."
+                    ),
                     "type": "loop_watchdog_paused",
                     "incident": incident.model_dump(mode="json") if incident else None,
                 }
@@ -427,7 +440,10 @@ async def _handle_proxy_request(
             status_code=409,
             content={
                 "error": {
-                    "message": "Loop Watchdog paused the session after detecting a likely fix-break loop.",
+                    "message": (
+                        "Loop Watchdog paused the session after detecting "
+                        "a likely fix-break loop."
+                    ),
                     "type": "loop_watchdog_paused",
                     "incident": incident.model_dump(mode="json"),
                 }
@@ -440,7 +456,9 @@ async def _handle_proxy_request(
         status_code, response_headers, iterator = await proxy.forward_stream(path, payload, headers)
         return StreamingResponse(iterator, status_code=status_code, headers=response_headers)
 
-    status_code, response_headers, response_payload = await proxy.forward_json(path, payload, headers)
+    status_code, response_headers, response_payload = await proxy.forward_json(
+        path, payload, headers
+    )
     if status_code >= 400:
         _, incident = store.record_event(_error_event(identity, status_code, response_payload))
         if incident is not None:

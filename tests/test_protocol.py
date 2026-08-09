@@ -55,6 +55,7 @@ def _client() -> TestClient:
 
 # --- Unit tests: parsing -------------------------------------------------
 
+
 def test_parse_lwep_envelope() -> None:
     event = parse_event_payload(_envelope_dict())
     assert isinstance(event, WatchdogEventCreate)
@@ -104,6 +105,7 @@ def test_reject_non_object_payload() -> None:
 
 # --- Unit tests: round trip + serialization ------------------------------
 
+
 def test_envelope_round_trip() -> None:
     envelope = LoopWatchdogEnvelope.model_validate(_envelope_dict())
     event = envelope_to_event(envelope)
@@ -128,6 +130,7 @@ def test_default_event_id_generated() -> None:
 
 
 # --- Integration tests: HTTP endpoint ------------------------------------
+
 
 def test_api_accepts_lwep_envelope() -> None:
     client = _client()

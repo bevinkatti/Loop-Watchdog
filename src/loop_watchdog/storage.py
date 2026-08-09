@@ -5,6 +5,7 @@ The core engine depends only on the ``SessionStore`` interface. The default
 persistence. Alternative backends (for example SQLite in a future task) can
 implement the same interface without touching the core engine.
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod

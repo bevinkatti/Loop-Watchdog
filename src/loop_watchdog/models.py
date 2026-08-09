@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 from uuid import uuid4
 
 from pydantic import BaseModel, Field, model_validator
 
+
 def utc_now() -> datetime:
     return datetime.now(UTC)
 
-class EventKind(str, Enum):
+
+class EventKind(StrEnum):
     # V1 Events
     AGENT_REQUEST = "agent_request"
     AGENT_RESPONSE = "agent_response"
@@ -48,9 +50,18 @@ class EventKind(str, Enum):
     @property
     def is_v1(self) -> bool:
         return self in {
-            self.AGENT_REQUEST, self.AGENT_RESPONSE, self.FILE_EDIT, self.PATCH_APPLY,
-            self.TOOL_ERROR, self.TEST_FAILURE, self.TEST_PASS, self.MANUAL_RESUME,
-            self.MANUAL_KILL, self.MANUAL_ACKNOWLEDGE, self.MANUAL_ARCHIVE, self.SESSION_NOTE,
+            self.AGENT_REQUEST,
+            self.AGENT_RESPONSE,
+            self.FILE_EDIT,
+            self.PATCH_APPLY,
+            self.TOOL_ERROR,
+            self.TEST_FAILURE,
+            self.TEST_PASS,
+            self.MANUAL_RESUME,
+            self.MANUAL_KILL,
+            self.MANUAL_ACKNOWLEDGE,
+            self.MANUAL_ARCHIVE,
+            self.SESSION_NOTE,
         }
 
     @property
@@ -78,7 +89,9 @@ class SessionIdentity(BaseModel):
 
 class WatchdogEventCreate(BaseModel):
     schema_version: int = Field(default=1, ge=1)
-    session_id: str | None = Field(default=None, description="Legacy session ID. Use identity instead.")
+    session_id: str | None = Field(
+        default=None, description="Legacy session ID. Use identity instead."
+    )
     identity: SessionIdentity | None = None
     kind: EventKind
     summary: str = ""
@@ -86,14 +99,14 @@ class WatchdogEventCreate(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def _resolve_identity(self) -> "WatchdogEventCreate":
+    def _resolve_identity(self) -> WatchdogEventCreate:
         if self.identity is None:
             if not self.session_id:
                 raise ValueError("Either session_id or identity must be provided.")
             self.identity = SessionIdentity(
                 watchdog_session_id=self.session_id,
                 agent_session_id=self.session_id,
-                agent="legacy"
+                agent="legacy",
             )
         # Ensure session_id always reflects the canonical watchdog ID for backwards compat
         self.session_id = self.identity.watchdog_session_id
@@ -106,6 +119,7 @@ class WatchdogEvent(WatchdogEventCreate):
     fingerprint: str = ""
     error_signature: str = ""
 
+
 class DetectorDecision(BaseModel):
     paused: bool = False
     score: float = 0.0
@@ -114,6 +128,7 @@ class DetectorDecision(BaseModel):
     repeated_errors: list[str] = Field(default_factory=list)
     triggering_event_ids: list[str] = Field(default_factory=list)
     recommendation: str = ""
+
 
 class LoopIncident(BaseModel):
     incident_id: str = Field(default_factory=lambda: str(uuid4()))
@@ -127,6 +142,7 @@ class LoopIncident(BaseModel):
     triggering_event_ids: list[str] = Field(default_factory=list)
     request_count: int = 0
     recommendation: str
+
 
 class SessionStatus(BaseModel):
     session_id: str
@@ -142,14 +158,17 @@ class SessionStatus(BaseModel):
     requires_changed_plan: bool = False
     required_plan_preview: str = ""
 
+
 class ResumeRequest(BaseModel):
     note: str = ""
     clear_recent_events: bool = False
     cooldown_seconds: int = Field(default=0, ge=0, le=86400)
     changed_plan: str = ""
 
+
 class SessionCommandRequest(BaseModel):
     note: str = ""
+
 
 class SessionMetrics(BaseModel):
     request_count: int = 0
@@ -158,6 +177,7 @@ class SessionMetrics(BaseModel):
     edit_count: int = 0
     test_failure_count: int = 0
     test_pass_count: int = 0
+
 
 class SessionSnapshot(BaseModel):
     session_id: str
@@ -179,6 +199,7 @@ class SessionSnapshot(BaseModel):
     requires_changed_plan: bool = False
     required_plan_preview: str = ""
 
+
 class DashboardSnapshot(BaseModel):
     generated_at: datetime = Field(default_factory=utc_now)
     total_sessions: int = 0
@@ -189,9 +210,11 @@ class DashboardSnapshot(BaseModel):
     archived_sessions: int = 0
     sessions: list[SessionSnapshot] = Field(default_factory=list)
 
+
 class IncidentEnvelope(BaseModel):
     incident: LoopIncident
     recent_events: list[WatchdogEvent]
+
 
 class PersistedSessionState(BaseModel):
     session_id: str
@@ -207,9 +230,11 @@ class PersistedSessionState(BaseModel):
     required_plan_digest: str = ""
     required_plan_preview: str = ""
 
+
 class PersistedStore(BaseModel):
     version: int = 1
     sessions: list[PersistedSessionState] = Field(default_factory=list)
+
 
 class GuidedTrialResponse(BaseModel):
     session_id: str

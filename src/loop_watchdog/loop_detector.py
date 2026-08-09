@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from collections.abc import Iterable
 from difflib import SequenceMatcher
-from typing import Iterable
 
 from .config import WatchdogSettings
 from .models import DetectorDecision, EventKind, WatchdogEvent
@@ -87,7 +87,7 @@ class LoopDetector:
         success_events = [event for event in recent if event.kind == EventKind.TEST_PASS]
 
         similar_request_pairs = 0
-        for left, right in zip(request_events, request_events[1:]):
+        for left, right in zip(request_events, request_events[1:], strict=False):
             similarity = max(
                 jaccard_similarity(left.summary, right.summary),
                 sequence_similarity(left.summary, right.summary),
@@ -98,18 +98,22 @@ class LoopDetector:
         if similar_request_pairs >= 2:
             score += self.settings.repeated_request_weight
             reasons.append(
-                f"Agent retried highly similar requests {similar_request_pairs + 1} times in the recent window."
+                f"Agent retried highly similar requests "
+                f"{similar_request_pairs + 1} times in the recent window."
             )
 
         repeated_file_group: tuple[str, ...] = ()
-        file_group_counter = Counter(tuple(sorted(set(event.files))) for event in file_events if event.files)
+        file_group_counter = Counter(
+            tuple(sorted(set(event.files))) for event in file_events if event.files
+        )
         if file_group_counter:
             repeated_file_group, file_group_count = file_group_counter.most_common(1)[0]
             if file_group_count >= self.settings.file_repeat_threshold:
                 score += self.settings.repeated_file_weight
                 repeated_files = list(repeated_file_group)
                 reasons.append(
-                    f"The same file cluster was touched {file_group_count} times without a clear recovery signal."
+                    f"The same file cluster was touched {file_group_count} times "
+                    f"without a clear recovery signal."
                 )
                 triggering_event_ids.extend(
                     event.event_id
@@ -124,7 +128,9 @@ class LoopDetector:
         if recurrent_errors:
             score += self.settings.repeated_error_weight
             repeated_errors = recurrent_errors[:3]
-            reasons.append("The session is repeating the same failure signature after multiple attempts.")
+            reasons.append(
+                "The session is repeating the same failure signature after multiple attempts."
+            )
             triggering_event_ids.extend(
                 event.event_id
                 for event in error_events
@@ -132,7 +138,7 @@ class LoopDetector:
             )
 
         oscillation_pairs = 0
-        for left, right in zip(recent, recent[1:]):
+        for left, right in zip(recent, recent[1:], strict=False):
             if left.kind in {EventKind.FILE_EDIT, EventKind.PATCH_APPLY} and right.kind in {
                 EventKind.TOOL_ERROR,
                 EventKind.TEST_FAILURE,
@@ -147,15 +153,20 @@ class LoopDetector:
                     oscillation_pairs += 1
         if oscillation_pairs >= 3:
             score += self.settings.oscillation_weight
-            reasons.append("The session is oscillating between edits and failures on the same surface area.")
+            reasons.append(
+                "The session is oscillating between edits and failures on the same surface area."
+            )
 
         if not success_events and len(error_events) >= 2 and len(request_events) >= 3:
             score += self.settings.no_progress_weight
-            reasons.append("Spend is growing without a passing test or a recovery event in the recent window.")
+            reasons.append(
+                "Spend is growing without a passing test or a recovery event in the recent window."
+            )
 
         paused = score >= self.settings.pause_score_threshold and len(reasons) >= 2
         recommendation = (
-            "Pause the agent, inspect the repeated file cluster, and require a human-approved plan before resuming."
+            "Pause the agent, inspect the repeated file cluster, "
+            "and require a human-approved plan before resuming."
             if paused
             else ""
         )
@@ -168,4 +179,3 @@ class LoopDetector:
             triggering_event_ids=list(dict.fromkeys(triggering_event_ids)),
             recommendation=recommendation,
         )
-

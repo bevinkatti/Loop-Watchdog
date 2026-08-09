@@ -1,3 +1,5 @@
+from datetime import UTC
+
 import httpx
 from fastapi.testclient import TestClient
 
@@ -233,7 +235,10 @@ def test_resume_with_changed_plan_requires_token() -> None:
             "note": "Human rewrote the plan.",
             "clear_recent_events": True,
             "cooldown_seconds": 0,
-            "changed_plan": "Reproduce with tax-inclusive totals and rewrite rounding at the aggregator boundary.",
+            "changed_plan": (
+                "Reproduce with tax-inclusive totals and rewrite "
+                "rounding at the aggregator boundary."
+            ),
         },
     )
 
@@ -249,7 +254,10 @@ def test_resume_with_changed_plan_requires_token() -> None:
         "/v1/chat/completions",
         headers={
             "X-Loop-Session": "plan:demo",
-            "X-Loop-Plan": "Reproduce with tax-inclusive totals and rewrite rounding at the aggregator boundary.",
+            "X-Loop-Plan": (
+                "Reproduce with tax-inclusive totals and rewrite "
+                "rounding at the aggregator boundary."
+            ),
         },
         json={"messages": [{"role": "user", "content": "Try a new approach now"}]},
     )
@@ -258,7 +266,7 @@ def test_resume_with_changed_plan_requires_token() -> None:
 
 def test_legacy_seed_demo_sessions_are_pruned_on_reload(tmp_path) -> None:
     import json
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime, timedelta
 
     persistence_path = tmp_path / "state.json"
     settings = WatchdogSettings(
@@ -268,9 +276,9 @@ def test_legacy_seed_demo_sessions_are_pruned_on_reload(tmp_path) -> None:
     )
     proxy = UpstreamProxy(settings, transport=_transport())
 
-    # FIX: Use dynamic dates relative to now() so the 'real' session 
+    # FIX: Use dynamic dates relative to now() so the 'real' session
     # is not expired by the default 2-hour TTL (7200 seconds).
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     recent_time = (now - timedelta(minutes=5)).isoformat().replace("+00:00", "Z")
     older_time = (now - timedelta(minutes=10)).isoformat().replace("+00:00", "Z")
 
@@ -288,7 +296,7 @@ def test_legacy_seed_demo_sessions_are_pruned_on_reload(tmp_path) -> None:
                 "archived": False,
                 "cooldown_until": None,
                 "required_plan_digest": "",
-                "required_plan_preview": ""
+                "required_plan_preview": "",
             },
             {
                 "session_id": "real:user:main",
@@ -301,9 +309,9 @@ def test_legacy_seed_demo_sessions_are_pruned_on_reload(tmp_path) -> None:
                 "archived": False,
                 "cooldown_until": None,
                 "required_plan_digest": "",
-                "required_plan_preview": ""
-            }
-        ]
+                "required_plan_preview": "",
+            },
+        ],
     }
 
     with persistence_path.open("w", encoding="utf-8") as handle:
