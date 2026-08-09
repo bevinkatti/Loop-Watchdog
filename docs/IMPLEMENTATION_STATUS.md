@@ -6,14 +6,14 @@
 
 ## Current State
 
-| Field              | Value                          |
-| ------------------ | ------------------------------ |
-| Current Phase      | Phase 2 — Detection Engine V2  |
-| Current Task       | TASK-05                        |
-| Status             | READY                          |
-| Last Updated       | 2026-08-09                     |
-| Repository Version | V2 (Phase 1 Complete)          |
-| Next Task          | TASK-05 — Error Normalization  |
+| Field              | Value                         |
+| ------------------ | ----------------------------- |
+| Current Phase      | Phase 2 — Detection Engine V2 |
+| Current Task       | TASK-05 — Error Normalization |
+| Status             | READY                         |
+| Last Updated       | 2026-08-10                    |
+| Repository Version | V2 — Phase 1 Complete         |
+| Next Task          | TASK-05 — Error Normalization |
 
 ---
 
@@ -29,6 +29,8 @@
 * [x] TASK-02 — Redesign Session Identity
 * [x] TASK-03 — Event Protocol V1 (LWEP)
 * [x] TASK-04 — Persistence Abstraction
+
+**Phase 1 Status: COMPLETE**
 
 ### Phase 2 — Detection Engine V2
 
@@ -118,105 +120,224 @@
 
 ## Completed Tasks
 
-None yet.
+### TASK-00 — Create Engineering Contract
+
+**Status:** COMPLETE
+
+Established the persistent roadmap and implementation-status system used to continue development across independent AI coding sessions.
+
+### TASK-01 — Formalize Event Model
+
+**Status:** COMPLETE
+
+Expanded the event model with the V2 event categories, semantic event properties, and schema versioning while preserving existing event values and behavior.
+
+### TASK-02 — Redesign Session Identity
+
+**Status:** COMPLETE
+
+Introduced structured session identity with a unique `watchdog_session_id` as the runtime isolation key while preserving compatibility with legacy `session_id` usage.
+
+### TASK-03 — Event Protocol V1
+
+**Status:** COMPLETE
+
+Introduced Loop Watchdog Event Protocol (LWEP) V1, including versioned envelopes, parsing, validation, legacy event compatibility, API integration, and protocol documentation.
+
+### TASK-04 — Persistence Abstraction
+
+**Status:** COMPLETE
+
+Introduced the persistence abstraction with `SessionStore` and `JsonSessionStore`, providing dependency injection and a clean foundation for future storage implementations such as SQLite.
 
 ---
 
 ## Current Task Details
 
-### TASK-00 — Create Engineering Contract
+### TASK-05 — Error Normalization
 
-**Status:** IN PROGRESS
+**Status:** READY
 
 **Objective:**
 
-Establish the persistent engineering roadmap and status system so future development sessions can continue without relying on previous conversation history.
+Normalize error and failure information so equivalent failures produce stable, comparable signatures regardless of machine-specific or transient values.
 
-**Required files:**
+The implementation should consider normalization of values such as:
 
 ```text
-docs/ROADMAP.md
-docs/IMPLEMENTATION_STATUS.md
+paths
+line numbers
+timestamps
+UUIDs
+ports
+hashes
+temporary directories
+machine-specific paths
 ```
+
+The goal is to improve detector accuracy by allowing repeated instances of the same underlying failure to be recognized as equivalent.
 
 **Completion requirements:**
 
-* [ ] `ROADMAP.md` created
-* [ ] `IMPLEMENTATION_STATUS.md` created
-* [ ] roadmap reviewed
-* [ ] repository status updated
-* [ ] tests unaffected/passing
-* [ ] commit created
+* [ ] Inspect current error/failure representation.
+* [ ] Design normalization strategy based on the existing architecture.
+* [ ] Implement deterministic error normalization.
+* [ ] Preserve meaningful error information.
+* [ ] Avoid over-normalizing distinct failures into the same signature.
+* [ ] Add focused unit tests.
+* [ ] Add regression tests where required.
+* [ ] Run relevant existing tests.
+* [ ] Run full test suite.
+* [ ] Run configured lint/format/type checks.
+* [ ] Review git diff.
+* [ ] Update implementation documentation.
+* [ ] Update this status file.
+* [ ] Commit the completed task.
 
 ---
 
 ## Architecture Decisions
 
-### Current
+### Current Architecture
 
-The existing Loop Watchdog implementation is preserved as the V1 foundation.
+Loop Watchdog is being evolved incrementally from the existing V1 foundation rather than being rewritten.
 
-The V2/V3 roadmap will evolve the existing implementation incrementally rather than rewrite the project.
+Phase 1 established the architectural foundation:
 
-### Planned
+```text
+Event Model
+     ↓
+Session Identity
+     ↓
+Event Protocol
+     ↓
+Persistence Abstraction
+```
+
+The Phase 1 architecture is now the foundation for Phase 2 detector improvements.
+
+### Established Decisions
 
 * Agent-agnostic core
-* Versioned event protocol
-* Deterministic detector
-* Progress/risk separation
-* Pluggable persistence
-* Agent adapters
+* Versioned event model/protocol
+* Structured session identity
+* Unique watchdog session isolation
+* Deterministic detection foundation
+* Pluggable persistence architecture
+* Backwards-conscious API/event handling
 * Local-first operation
-* Optional cloud/team layer
+* Future agent adapters separated from the core
+* Optional future cloud/team layer
+
+### Planned Architecture
+
+Future phases will extend the system toward:
+
+```text
+Agent
+  ↓
+Agent Adapter / Event Protocol
+  ↓
+Loop Watchdog Core
+  ├── Event Processing
+  ├── Progress Analysis
+  ├── Loop Detection
+  ├── Risk Scoring
+  └── Recovery
+        ↓
+  Local Developer UX
+        +
+  Optional Cloud/Team Layer
+```
 
 ---
 
 ## Known Current Limitations
 
-These are known from the initial V1 review and are tracked by the roadmap:
+These are remaining known limitations tracked by the roadmap:
 
-* Codex-oriented integration
-* No first-class Claude Code adapter
-* Limited event semantics
-* Limited progress modeling
-* Limited Git diff analysis
-* Limited strategy analysis
-* Automatic telemetry is incomplete
-* Session identity can be strengthened
-* JSON persistence is not intended as the final scalable store
-* Developer onboarding can be simplified
-* Detector evaluation corpus is not yet comprehensive
-* Cross-platform integrations need strengthening
-* Security needs additional hardening for non-local deployment
-* IDE integration is not yet available
+* Error normalization is not yet implemented.
+* Test failure identity remains limited.
+* Git diff fingerprinting is not yet implemented.
+* File-cluster similarity is not yet implemented.
+* Strategy similarity/diversity analysis is not yet implemented.
+* A→B→A oscillation detection is not yet implemented.
+* Progress scoring is not yet a first-class engine.
+* Risk and confidence are not yet fully separated.
+* Graduated early-warning/soft-pause behavior remains to be implemented.
+* Detector explainability remains limited.
+* Automatic test/build/lint telemetry is incomplete.
+* Git telemetry is incomplete.
+* Filesystem watcher improvements remain.
+* First-class Claude Code integration is not yet implemented.
+* Agent adapter architecture remains to be implemented.
+* Developer onboarding can be simplified.
+* CLI lifecycle can be expanded.
+* Recovery UX can be improved.
+* Token/cost tracking is not yet implemented.
+* Performance benchmarking is not yet implemented.
+* OpenTelemetry integration is not yet implemented.
+* SQLite storage is not yet implemented.
+* Cross-platform integrations need strengthening.
+* Security hardening remains for non-local deployments.
+* Detector evaluation corpus is not yet comprehensive.
+* Replay/evaluation infrastructure is not yet implemented.
+* IDE integration is not yet available.
+* SDK ecosystem is not yet available.
+* Community/release automation improvements remain.
+* Cloud/team functionality is not yet implemented.
 
 ---
 
 ## Test Baseline
 
-Record the current baseline after TASK-00.
+Current Phase 1 baseline:
 
 ```text
 Test command:
+pytest
+
 Result:
-Number of tests:
+PASS
+
+Tests:
+54 passed
+
 Failures:
-Warnings:
+0
+
+Lint:
+PASS
+
+Additional notes:
+- All Phase 1 task-specific tests passed.
+- Flaky time-dependent test in test_api.py was corrected.
+- Ruff lint issues were resolved across the codebase.
 ```
 
 ---
 
 ## Recent Changes
 
+### 2026-08-10
+
+* **Phase 1 completed.**
+* Verified TASK-01 through TASK-04 as implemented and integrated.
+* Phase 1 architecture validated.
+* Full Phase 1 test suite passed: **54 tests**.
+* Ruff linting completed cleanly.
+* Fixed flaky time-dependent test in `test_api.py`.
+* Prepared repository to begin Phase 2 — Detection Engine V2.
+* Current next task: **TASK-05 — Error Normalization**.
+
 ### 2026-08-09
 
-* **TASK-01** — Expanded EventKind to 30 event categories with semantic properties. Added schema_version for forward compatibility. 13 tests.
-* **TASK-02** — Introduced SessionIdentity model with watchdog_session_id isolation key. Backwards-compatible legacy session_id mapping. 5 tests.
-* **TASK-03** — Created LWEP v1 protocol (LoopWatchdogEnvelope). Wired parse_event_payload into /v1/watchdog/events endpoint accepting both LWEP and legacy formats. Documented in docs/EVENT_PROTOCOL.md. 12 tests.
-* **TASK-04** — Introduced SessionStore abstraction with JsonSessionStore implementation. Dependency injection support for future SQLite backend. 7 tests.
-* Fixed flaky time-bomb test in test_api.py (hardcoded dates → dynamic).
-* Resolved all 44 ruff lint errors across codebase.
-* Phase 1 complete: 54 tests passing, lint clean, architecture verified.
+* **TASK-01** — Expanded `EventKind` to 30 event categories with semantic properties. Added `schema_version` for forward compatibility. Added 13 tests.
+* **TASK-02** — Introduced `SessionIdentity` with `watchdog_session_id` isolation key and backwards-compatible legacy `session_id` mapping. Added 5 tests.
+* **TASK-03** — Created LWEP V1 (`LoopWatchdogEnvelope`). Wired `parse_event_payload` into `/v1/watchdog/events`, accepting both LWEP and legacy formats. Added `docs/EVENT_PROTOCOL.md`. Added 12 tests.
+* **TASK-04** — Introduced `SessionStore` abstraction with `JsonSessionStore` implementation and dependency injection support for future storage backends. Added 7 tests.
+* Fixed flaky time-bomb test in `test_api.py` by replacing hardcoded dates with dynamic values.
+* Resolved all 44 Ruff lint errors across the codebase.
 
 ### 2026-08-08
 
@@ -224,9 +345,32 @@ Warnings:
 * Established task-based implementation strategy.
 * Established fresh-chat continuation protocol.
 
+---
+
+## Phase 1 Completion Summary
+
+```text
+PHASE 1 — CORE ARCHITECTURE
+
+TASK-00  ✅ Engineering Contract
+TASK-01  ✅ Event Model
+TASK-02  ✅ Session Identity
+TASK-03  ✅ Event Protocol V1
+TASK-04  ✅ Persistence Abstraction
+
+Tests: 54 passed
+Lint: PASS
+Status: COMPLETE
+```
 
 ---
+
 ## Next Task
 
 ```text
-PHASE 02 - Detection Engine V2
+PHASE 2 — DETECTION ENGINE V2
+
+TASK-05 — Error Normalization
+```
+
+Do not begin Phase 3 or later tasks until the Phase 2 dependency chain has been completed and validated.
