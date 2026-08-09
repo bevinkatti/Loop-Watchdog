@@ -20,6 +20,7 @@ from .models import (
     PersistedStore,
     ResumeRequest,
     SessionCommandRequest,
+    SessionIdentity,
     SessionMetrics,
     SessionSnapshot,
     SessionStatus,
@@ -33,6 +34,7 @@ class SessionState:
     session_id: str
     created_at: datetime
     updated_at: datetime
+    identity: SessionIdentity = field(default_factory=lambda: SessionIdentity(watchdog_session_id="unknown"))
     events: deque[WatchdogEvent] = field(default_factory=deque)
     incident: LoopIncident | None = None
     acknowledged_at: datetime | None = None
@@ -57,9 +59,10 @@ class WatchdogStore:
         with self._lock:
             self._cleanup_expired_locked()
             now = datetime.now(UTC)
+            identity = payload.identity or SessionIdentity(watchdog_session_id=payload.session_id)
             session = self._sessions.setdefault(
                 payload.session_id,
-                SessionState(session_id=payload.session_id, created_at=now, updated_at=now),
+                SessionState(session_id=payload.session_id, identity=identity, created_at=now, updated_at=now),
             )
             event = WatchdogEvent(
                 **payload.model_dump(),
@@ -93,6 +96,7 @@ class WatchdogStore:
             snapshot = self._snapshot_locked(session)
             return SessionStatus(
                 session_id=session_id,
+                identity=session.identity,
                 paused=snapshot.paused,
                 event_count=snapshot.event_count,
                 last_event_at=snapshot.last_event_at,
@@ -163,7 +167,12 @@ class WatchdogStore:
             now = datetime.now(UTC)
             session = self._sessions.setdefault(
                 session_id,
-                SessionState(session_id=session_id, created_at=now, updated_at=now),
+                SessionState(
+                    session_id=session_id,
+                    identity=SessionIdentity(watchdog_session_id=session_id),
+                    created_at=now,
+                    updated_at=now,
+                ),
             )
             if payload.clear_recent_events:
                 session.events.clear()
@@ -184,6 +193,7 @@ class WatchdogStore:
                 session.required_plan_preview = ""
             event = WatchdogEvent(
                 session_id=session_id,
+                identity=session.identity,
                 kind=EventKind.MANUAL_RESUME,
                 summary=payload.note or "Session resumed manually.",
                 metadata={
@@ -203,12 +213,18 @@ class WatchdogStore:
             now = datetime.now(UTC)
             session = self._sessions.setdefault(
                 session_id,
-                SessionState(session_id=session_id, created_at=now, updated_at=now),
+                SessionState(
+                    session_id=session_id,
+                    identity=SessionIdentity(watchdog_session_id=session_id),
+                    created_at=now,
+                    updated_at=now,
+                ),
             )
             session.acknowledged_at = now
             session.acknowledged_note = payload.note or "Incident acknowledged by an operator."
             event = WatchdogEvent(
                 session_id=session_id,
+                identity=session.identity,
                 kind=EventKind.MANUAL_ACKNOWLEDGE,
                 summary=session.acknowledged_note,
                 fingerprint=self.detector.fingerprint(
@@ -227,11 +243,17 @@ class WatchdogStore:
             now = datetime.now(UTC)
             session = self._sessions.setdefault(
                 session_id,
-                SessionState(session_id=session_id, created_at=now, updated_at=now),
+                SessionState(
+                    session_id=session_id,
+                    identity=SessionIdentity(watchdog_session_id=session_id),
+                    created_at=now,
+                    updated_at=now,
+                ),
             )
             session.archived = True
             event = WatchdogEvent(
                 session_id=session_id,
+                identity=session.identity,
                 kind=EventKind.MANUAL_ARCHIVE,
                 summary=payload.note or "Session archived by an operator.",
                 fingerprint=self.detector.fingerprint(
@@ -250,11 +272,17 @@ class WatchdogStore:
             now = datetime.now(UTC)
             session = self._sessions.setdefault(
                 session_id,
-                SessionState(session_id=session_id, created_at=now, updated_at=now),
+                SessionState(
+                    session_id=session_id,
+                    identity=SessionIdentity(watchdog_session_id=session_id),
+                    created_at=now,
+                    updated_at=now,
+                ),
             )
             if session.incident is None:
                 session.incident = LoopIncident(
                     session_id=session_id,
+                    identity=session.identity,
                     score=999.0,
                     reasons=[payload.note or "Session was terminated manually."],
                     request_count=sum(
@@ -264,6 +292,7 @@ class WatchdogStore:
                 )
             event = WatchdogEvent(
                 session_id=session_id,
+                identity=session.identity,
                 kind=EventKind.MANUAL_KILL,
                 summary=payload.note or "Session terminated manually.",
                 fingerprint=self.detector.fingerprint(EventKind.MANUAL_KILL, payload.note, []),
@@ -312,8 +341,10 @@ class WatchdogStore:
         with self._lock:
             now = datetime.now(UTC)
             session_id = f"trial:{now.strftime('%Y%m%d%H%M%S')}"
+            trial_identity = SessionIdentity(watchdog_session_id=session_id, agent="guided_trial")
             session = SessionState(
                 session_id=session_id,
+                identity=trial_identity,
                 created_at=now - timedelta(minutes=8),
                 updated_at=now - timedelta(minutes=1),
             )
@@ -357,6 +388,7 @@ class WatchdogStore:
             for kind, summary, minutes_ago, files, metadata in trial_events:
                 event = WatchdogEvent(
                     session_id=session_id,
+                    identity=trial_identity,
                     kind=kind,
                     summary=summary,
                     files=files,
@@ -396,6 +428,7 @@ class WatchdogStore:
         request_count = sum(1 for event in session.events if event.kind == EventKind.AGENT_REQUEST)
         return LoopIncident(
             session_id=session_id,
+            identity=session.identity,
             score=decision.score,
             reasons=decision.reasons,
             repeated_files=decision.repeated_files,
@@ -418,6 +451,7 @@ class WatchdogStore:
                 break
         return SessionSnapshot(
             session_id=session.session_id,
+            identity=session.identity,
             paused=session.incident is not None,
             created_at=session.created_at,
             updated_at=session.updated_at,
@@ -470,6 +504,7 @@ class WatchdogStore:
                 session_id=item.session_id,
                 created_at=item.created_at,
                 updated_at=item.updated_at,
+                identity=item.identity or SessionIdentity(watchdog_session_id=item.session_id),
                 events=deque(item.events),
                 incident=item.incident,
                 acknowledged_at=item.acknowledged_at,
@@ -490,6 +525,7 @@ class WatchdogStore:
             sessions=[
                 PersistedSessionState(
                     session_id=session.session_id,
+                    identity=session.identity,
                     created_at=session.created_at,
                     updated_at=session.updated_at,
                     events=list(session.events),

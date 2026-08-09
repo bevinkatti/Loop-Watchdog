@@ -15,7 +15,13 @@ from fastapi.templating import Jinja2Templates
 from .alerting import AlertDispatcher
 from .config import WatchdogSettings, get_settings
 from .loop_detector import LoopDetector, normalize_text
-from .models import EventKind, ResumeRequest, SessionCommandRequest, WatchdogEventCreate
+from .models import (
+    EventKind,
+    ResumeRequest,
+    SessionCommandRequest,
+    SessionIdentity,
+    WatchdogEventCreate,
+)
 from .provider import UpstreamProxy
 from .state import WatchdogStore
 
@@ -96,31 +102,65 @@ def _clamp(value: str, max_chars: int) -> str:
     return cleaned[:max_chars]
 
 
-def _extract_session_id(
+def _extract_identity(
     payload: dict[str, Any],
     x_loop_session: str | None,
-) -> str:
-    if x_loop_session:
-        return x_loop_session
+    headers: dict[str, str],
+) -> SessionIdentity:
+    # 1. Resolve canonical watchdog_session_id
+    watchdog_id = x_loop_session
+    if not watchdog_id:
+        metadata = payload.get("metadata")
+        if isinstance(metadata, dict):
+            for key in ("session_id", "loop_watchdog_session", "loop_session"):
+                value = metadata.get(key)
+                if isinstance(value, str) and value.strip():
+                    watchdog_id = value
+                    break
+    if not watchdog_id:
+        user = payload.get("user")
+        if isinstance(user, str) and user.strip():
+            watchdog_id = user
+    if not watchdog_id:
+        latest_text = _extract_latest_user_text(payload)
+        seed = latest_text or json.dumps(payload, sort_keys=True)
+        digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:16]
+        watchdog_id = f"ephemeral:{digest}"
+
+    # 2. Extract structural metadata from headers (fallback to payload metadata)
+    repository = headers.get("x-loop-repo", "")
+    workspace = headers.get("x-loop-workspace", "")
+    branch = headers.get("x-loop-branch", "")
+    agent = headers.get("x-loop-agent", "")
+    agent_session_id = headers.get("x-loop-agent-session", "")
+    task_id = headers.get("x-loop-task", "")
+
     metadata = payload.get("metadata")
     if isinstance(metadata, dict):
-        for key in ("session_id", "loop_watchdog_session", "loop_session"):
-            value = metadata.get(key)
-            if isinstance(value, str) and value.strip():
-                return value
-    user = payload.get("user")
-    if isinstance(user, str) and user.strip():
-        return user
-    latest_text = _extract_latest_user_text(payload)
-    seed = latest_text or json.dumps(payload, sort_keys=True)
-    digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:16]
-    return f"ephemeral:{digest}"
+        repository = repository or str(metadata.get("repository", ""))
+        workspace = workspace or str(metadata.get("workspace", ""))
+        branch = branch or str(metadata.get("branch", ""))
+        agent = agent or str(metadata.get("agent", ""))
+        agent_session_id = agent_session_id or str(metadata.get("agent_session_id", ""))
+        task_id = task_id or str(metadata.get("task_id", ""))
+
+    return SessionIdentity(
+        watchdog_session_id=watchdog_id,
+        repository=repository,
+        workspace=workspace,
+        branch=branch,
+        agent=agent,
+        agent_session_id=agent_session_id,
+        task_id=task_id,
+    )
 
 
-def _request_event(payload: dict[str, Any], session_id: str, max_chars: int) -> WatchdogEventCreate:
+def _request_event(
+    payload: dict[str, Any], identity: SessionIdentity, max_chars: int
+) -> WatchdogEventCreate:
     summary = _clamp(_extract_latest_user_text(payload), max_chars)
     return WatchdogEventCreate(
-        session_id=session_id,
+        identity=identity,
         kind=EventKind.AGENT_REQUEST,
         summary=summary or "Agent request",
         metadata={"stream": bool(payload.get("stream"))},
@@ -129,25 +169,27 @@ def _request_event(payload: dict[str, Any], session_id: str, max_chars: int) -> 
 
 def _response_event(
     payload: Any,
-    session_id: str,
+    identity: SessionIdentity,
     max_chars: int,
 ) -> WatchdogEventCreate:
     summary = _clamp(_extract_response_text(payload), max_chars)
     return WatchdogEventCreate(
-        session_id=session_id,
+        identity=identity,
         kind=EventKind.AGENT_RESPONSE,
         summary=summary or "Agent response",
     )
 
 
-def _error_event(session_id: str, status_code: int, payload: Any) -> WatchdogEventCreate:
+def _error_event(
+    identity: SessionIdentity, status_code: int, payload: Any
+) -> WatchdogEventCreate:
     if isinstance(payload, (dict, list)):
         text = json.dumps(payload, sort_keys=True)
     else:
         text = str(payload)
     summary = _clamp(text, 280)
     return WatchdogEventCreate(
-        session_id=session_id,
+        identity=identity,
         kind=EventKind.TOOL_ERROR,
         summary=summary or f"Upstream error {status_code}",
         metadata={"status_code": status_code, "error": normalize_text(text)},
@@ -318,7 +360,10 @@ async def _handle_proxy_request(
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="JSON request body must be an object.")
 
-    session_id = _extract_session_id(payload, x_loop_session)
+    headers = {key.lower(): value for key, value in request.headers.items()}
+    identity = _extract_identity(payload, x_loop_session, headers)
+    session_id = identity.watchdog_session_id
+
     cooldown_until = store.cooldown_until(session_id)
     if cooldown_until is not None and cooldown_until > datetime.now(UTC):
         return JSONResponse(
@@ -366,7 +411,7 @@ async def _handle_proxy_request(
             },
         )
 
-    _, incident = store.record_event(_request_event(payload, session_id, settings.max_summary_chars))
+    _, incident = store.record_event(_request_event(payload, identity, settings.max_summary_chars))
     if incident is not None:
         await dispatcher.dispatch(incident, store.get_recent_events(session_id))
         return JSONResponse(
@@ -380,7 +425,6 @@ async def _handle_proxy_request(
             },
         )
 
-    headers = {key.lower(): value for key, value in request.headers.items()}
     is_streaming = bool(payload.get("stream"))
 
     if is_streaming:
@@ -389,12 +433,12 @@ async def _handle_proxy_request(
 
     status_code, response_headers, response_payload = await proxy.forward_json(path, payload, headers)
     if status_code >= 400:
-        _, incident = store.record_event(_error_event(session_id, status_code, response_payload))
+        _, incident = store.record_event(_error_event(identity, status_code, response_payload))
         if incident is not None:
             await dispatcher.dispatch(incident, store.get_recent_events(session_id))
     else:
         _, incident = store.record_event(
-            _response_event(response_payload, session_id, settings.max_response_chars)
+            _response_event(response_payload, identity, settings.max_response_chars)
         )
         if incident is not None:
             await dispatcher.dispatch(incident, store.get_recent_events(session_id))
