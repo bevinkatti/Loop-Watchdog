@@ -11,7 +11,7 @@ from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-
+from pydantic import ValidationError
 from .alerting import AlertDispatcher
 from .config import WatchdogSettings, get_settings
 from .loop_detector import LoopDetector, normalize_text
@@ -22,6 +22,7 @@ from .models import (
     SessionIdentity,
     WatchdogEventCreate,
 )
+from .protocol import parse_event_payload
 from .provider import UpstreamProxy
 from .state import WatchdogStore
 
@@ -272,13 +273,21 @@ def create_app(
             status_code=200,
             content={"session_id": session_id, "events": [event.model_dump(mode="json") for event in events]},
         )
-
+    
     @app.post("/v1/watchdog/events")
-    async def ingest_event(payload: WatchdogEventCreate) -> JSONResponse:
-        _, incident = store.record_event(payload)
+    async def ingest_event(request: Request) -> JSONResponse:
+        try:
+            raw = await request.json()
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail="Request body must be valid JSON.") from exc
+        try:
+            event = parse_event_payload(raw)
+        except (ValueError, ValidationError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        _, incident = store.record_event(event)
         if incident is not None:
-            await alert_dispatcher.dispatch(incident, store.get_recent_events(payload.session_id))
-        status = store.get_status(payload.session_id)
+            await alert_dispatcher.dispatch(incident, store.get_recent_events(event.session_id))
+        status = store.get_status(event.session_id)
         return JSONResponse(status_code=202, content=status.model_dump(mode="json"))
 
     @app.post("/v1/watchdog/demo/guided-trial")
