@@ -7,12 +7,11 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-
 def utc_now() -> datetime:
     return datetime.now(UTC)
 
-
 class EventKind(str, Enum):
+    # V1 Events (Strictly Preserved for Backwards Compatibility)
     AGENT_REQUEST = "agent_request"
     AGENT_RESPONSE = "agent_response"
     FILE_EDIT = "file_edit"
@@ -26,21 +25,69 @@ class EventKind(str, Enum):
     MANUAL_ARCHIVE = "manual_archive"
     SESSION_NOTE = "session_note"
 
+    # V2 Roadmap Events
+    TOOL_CALL = "tool_call"
+    TOOL_RESULT = "tool_result"
+    FILE_CREATE = "file_create"
+    FILE_DELETE = "file_delete"
+    COMMAND_START = "command_start"
+    COMMAND_END = "command_end"
+    TEST_START = "test_start"
+    BUILD_START = "build_start"
+    BUILD_SUCCESS = "build_success"
+    BUILD_FAILURE = "build_failure"
+    LINT_PASS = "lint_pass"
+    LINT_FAILURE = "lint_failure"
+    GIT_DIFF = "git_diff"
+    GIT_COMMIT = "git_commit"
+    USER_INTERVENTION = "user_intervention"
+    TASK_STARTED = "task_started"
+    TASK_PROGRESS = "task_progress"
+    TASK_COMPLETED = "task_completed"
+
+    @property
+    def is_v1(self) -> bool:
+        return self in {
+            self.AGENT_REQUEST, self.AGENT_RESPONSE, self.FILE_EDIT, self.PATCH_APPLY,
+            self.TOOL_ERROR, self.TEST_FAILURE, self.TEST_PASS, self.MANUAL_RESUME,
+            self.MANUAL_KILL, self.MANUAL_ACKNOWLEDGE, self.MANUAL_ARCHIVE, self.SESSION_NOTE,
+        }
+
+    @property
+    def is_progress(self) -> bool:
+        return self in {
+            self.TEST_PASS, self.BUILD_SUCCESS, self.LINT_PASS, self.TASK_COMPLETED,
+        }
+
+    @property
+    def is_failure(self) -> bool:
+        return self in {
+            self.TOOL_ERROR, self.TEST_FAILURE, self.BUILD_FAILURE, self.LINT_FAILURE,
+        }
+
+    @property
+    def is_file_modification(self) -> bool:
+        return self in {
+            self.FILE_EDIT, self.PATCH_APPLY, self.FILE_CREATE, self.FILE_DELETE,
+        }
 
 class WatchdogEventCreate(BaseModel):
+    schema_version: int = Field(
+        default=1,
+        ge=1,
+        description="Event schema version for forward compatibility.",
+    )
     session_id: str = Field(min_length=1)
     kind: EventKind
     summary: str = ""
     files: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
-
 class WatchdogEvent(WatchdogEventCreate):
     event_id: str = Field(default_factory=lambda: str(uuid4()))
     created_at: datetime = Field(default_factory=utc_now)
     fingerprint: str = ""
     error_signature: str = ""
-
 
 class DetectorDecision(BaseModel):
     paused: bool = False
@@ -50,7 +97,6 @@ class DetectorDecision(BaseModel):
     repeated_errors: list[str] = Field(default_factory=list)
     triggering_event_ids: list[str] = Field(default_factory=list)
     recommendation: str = ""
-
 
 class LoopIncident(BaseModel):
     incident_id: str = Field(default_factory=lambda: str(uuid4()))
@@ -63,7 +109,6 @@ class LoopIncident(BaseModel):
     triggering_event_ids: list[str] = Field(default_factory=list)
     request_count: int = 0
     recommendation: str
-
 
 class SessionStatus(BaseModel):
     session_id: str
@@ -78,17 +123,14 @@ class SessionStatus(BaseModel):
     requires_changed_plan: bool = False
     required_plan_preview: str = ""
 
-
 class ResumeRequest(BaseModel):
     note: str = ""
     clear_recent_events: bool = False
     cooldown_seconds: int = Field(default=0, ge=0, le=86400)
     changed_plan: str = ""
 
-
 class SessionCommandRequest(BaseModel):
     note: str = ""
-
 
 class SessionMetrics(BaseModel):
     request_count: int = 0
@@ -97,7 +139,6 @@ class SessionMetrics(BaseModel):
     edit_count: int = 0
     test_failure_count: int = 0
     test_pass_count: int = 0
-
 
 class SessionSnapshot(BaseModel):
     session_id: str
@@ -118,7 +159,6 @@ class SessionSnapshot(BaseModel):
     requires_changed_plan: bool = False
     required_plan_preview: str = ""
 
-
 class DashboardSnapshot(BaseModel):
     generated_at: datetime = Field(default_factory=utc_now)
     total_sessions: int = 0
@@ -129,11 +169,9 @@ class DashboardSnapshot(BaseModel):
     archived_sessions: int = 0
     sessions: list[SessionSnapshot] = Field(default_factory=list)
 
-
 class IncidentEnvelope(BaseModel):
     incident: LoopIncident
     recent_events: list[WatchdogEvent]
-
 
 class PersistedSessionState(BaseModel):
     session_id: str
@@ -148,11 +186,9 @@ class PersistedSessionState(BaseModel):
     required_plan_digest: str = ""
     required_plan_preview: str = ""
 
-
 class PersistedStore(BaseModel):
     version: int = 1
     sessions: list[PersistedSessionState] = Field(default_factory=list)
-
 
 class GuidedTrialResponse(BaseModel):
     session_id: str
