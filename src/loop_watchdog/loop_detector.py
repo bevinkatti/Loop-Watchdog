@@ -6,7 +6,7 @@ from collections.abc import Iterable
 from difflib import SequenceMatcher
 
 from .config import WatchdogSettings
-from .models import DetectorDecision, EventKind, WatchdogEvent
+from .models import DetectorDecision, EventKind, TestFailureIdentity, WatchdogEvent
 
 # --- TASK-05: Error Normalization Regexes ---
 UUID_RE = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b")
@@ -99,6 +99,19 @@ class LoopDetector:
     def error_signature(self, event: WatchdogEvent) -> str:
         source = event.metadata.get("error") or event.summary
         return normalize_text(str(source))
+    
+    def extract_test_failure(self, event: WatchdogEvent) -> TestFailureIdentity:
+        meta = event.metadata
+        stacktrace = str(meta.get("stacktrace") or meta.get("error") or event.summary or "")
+        return TestFailureIdentity(
+            framework=str(meta.get("framework", "")),
+            suite=str(meta.get("suite", "")),
+            test_id=str(meta.get("test_id", "")),
+            command=str(meta.get("command", "")),
+            exit_code=meta.get("exit_code"),
+            failure_type=str(meta.get("failure_type", "")),
+            stacktrace_signature=normalize_text(stacktrace),
+        )
 
     def evaluate(self, events: list[WatchdogEvent]) -> DetectorDecision:
         recent = events[-self.settings.recent_window :]
@@ -176,6 +189,29 @@ class LoopDetector:
                 for event in error_events
                 if event.error_signature in recurrent_errors
             )
+                    # TASK-06: Repeated identical test failure detection
+        test_failure_events = [
+            event
+            for event in recent
+            if event.kind == EventKind.TEST_FAILURE and event.test_failure is not None
+        ]
+        if test_failure_events:
+            tf_counter = Counter(
+                event.test_failure.identity() for event in test_failure_events
+            )
+            repeated_tf = [
+                identity for identity, count in tf_counter.items() if count >= 2 and identity
+            ]
+            if repeated_tf:
+                score += self.settings.repeated_test_failure_weight
+                reasons.append(
+                    f"The same test failure repeated {max(tf_counter.values())} times."
+                )
+                triggering_event_ids.extend(
+                    event.event_id
+                    for event in test_failure_events
+                    if event.test_failure.identity() in repeated_tf
+                )
 
         oscillation_pairs = 0
         for left, right in zip(recent, recent[1:], strict=False):
