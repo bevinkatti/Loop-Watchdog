@@ -87,6 +87,17 @@ class TestFailureIdentity(BaseModel):
     def identity(self) -> str:
         parts = [self.suite, self.test_id, self.failure_type, self.stacktrace_signature]
         return "|".join(p for p in parts if p)
+    
+class GitDiffFingerprint(BaseModel):
+    diff_hash: str = ""
+    normalized_diff_hash: str = ""
+    files: list[str] = Field(default_factory=list)
+    symbols: list[str] = Field(default_factory=list)
+    lines_added: int = 0
+    lines_removed: int = 0
+
+    def identity(self) -> str:
+        return self.normalized_diff_hash or self.diff_hash
 
 class SessionIdentity(BaseModel):
     watchdog_session_id: str = Field(min_length=1)
@@ -130,6 +141,7 @@ class WatchdogEvent(WatchdogEventCreate):
     fingerprint: str = ""
     error_signature: str = ""
     test_failure: TestFailureIdentity | None = None
+    git_diff: GitDiffFingerprint | None = None
 
 
 class DetectorDecision(BaseModel):

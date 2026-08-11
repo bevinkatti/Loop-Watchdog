@@ -1,17 +1,23 @@
 from __future__ import annotations
 
 import re
+import hashlib
 from collections import Counter
 from collections.abc import Iterable
 from difflib import SequenceMatcher
 
 from .config import WatchdogSettings
-from .models import DetectorDecision, EventKind, TestFailureIdentity, WatchdogEvent
+from .models import DetectorDecision, EventKind, GitDiffFingerprint, TestFailureIdentity, WatchdogEvent
 
 # --- TASK-05: Error Normalization Regexes ---
 UUID_RE = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b")
 ISO_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}(?:[Tt ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)?")
 TIMESTAMP_RE = re.compile(r"\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}")
+# TASK-07: Diff normalization
+DIFF_INDEX_RE = re.compile(r"^index [0-9a-f]+\.\.[0-9a-f]+.*$", re.MULTILINE)
+DIFF_HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@.*$", re.MULTILINE)
+DIFF_PATH_RE = re.compile(r"^(?:---|\+\+\+) [ab]/.*$", re.MULTILINE)
+DIFF_SYMBOL_RE = re.compile(r"^[ +-]\s*(?:def |class |function |const |let |var |fn |pub fn )\s*(\w+)", re.MULTILINE)
 
 # Directories (Specificity order matters!)
 TMP_DIR_RE = re.compile(
@@ -112,6 +118,37 @@ class LoopDetector:
             failure_type=str(meta.get("failure_type", "")),
             stacktrace_signature=normalize_text(stacktrace),
         )
+        
+    def extract_git_diff_fingerprint(self, event: WatchdogEvent) -> GitDiffFingerprint:
+        meta = event.metadata
+        raw_diff = str(meta.get("diff", ""))
+        files = list(meta.get("files", event.files) or [])
+
+        # Compute raw hash
+        diff_hash = hashlib.sha256(raw_diff.encode("utf-8")).hexdigest()[:16] if raw_diff else ""
+
+        # Normalize diff: strip index hashes, hunk line numbers, file paths
+        normalized = DIFF_INDEX_RE.sub("", raw_diff)
+        normalized = DIFF_HUNK_RE.sub("@@", normalized)
+        normalized = DIFF_PATH_RE.sub("", normalized)
+        normalized = normalize_text(normalized)
+        normalized_diff_hash = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16] if normalized else ""
+
+        # Extract symbols touched
+        symbols = list(set(DIFF_SYMBOL_RE.findall(raw_diff)))
+
+        # Count added/removed lines
+        lines_added = sum(1 for line in raw_diff.splitlines() if line.startswith("+") and not line.startswith("+++"))
+        lines_removed = sum(1 for line in raw_diff.splitlines() if line.startswith("-") and not line.startswith("---"))
+
+        return GitDiffFingerprint(
+            diff_hash=diff_hash,
+            normalized_diff_hash=normalized_diff_hash,
+            files=files,
+            symbols=symbols,
+            lines_added=lines_added,
+            lines_removed=lines_removed,
+        )
 
     def evaluate(self, events: list[WatchdogEvent]) -> DetectorDecision:
         recent = events[-self.settings.recent_window :]
@@ -211,6 +248,34 @@ class LoopDetector:
                     event.event_id
                     for event in test_failure_events
                     if event.test_failure.identity() in repeated_tf
+                )
+                
+        # TASK-07: Repeated / near-identical patch detection
+        diff_events = [
+            event for event in recent
+            if event.kind == EventKind.GIT_DIFF and event.git_diff is not None
+        ]
+        if diff_events:
+            # Repeated identical patches
+            diff_hash_counter = Counter(e.git_diff.diff_hash for e in diff_events if e.git_diff.diff_hash)
+            repeated_diffs = [h for h, c in diff_hash_counter.items() if c >= 2]
+            if repeated_diffs:
+                score += self.settings.repeated_patch_weight
+                reasons.append(
+                    f"The exact same patch was applied {max(diff_hash_counter.values())} times."
+                )
+                triggering_event_ids.extend(
+                    e.event_id for e in diff_events
+                    if e.git_diff.diff_hash in repeated_diffs
+                )
+
+            # Near-identical patches (same normalized hash, different raw hash)
+            norm_counter = Counter(e.git_diff.normalized_diff_hash for e in diff_events if e.git_diff.normalized_diff_hash)
+            near_identical = [h for h, c in norm_counter.items() if c >= 2]
+            if near_identical and not repeated_diffs:
+                score += self.settings.repeated_patch_weight * 0.7
+                reasons.append(
+                    "Near-identical patches were applied repeatedly with minor variations."
                 )
 
         oscillation_pairs = 0

@@ -85,6 +85,8 @@ class WatchdogStore:
                 event.error_signature = self.detector.error_signature(event)
             if payload.kind == EventKind.TEST_FAILURE:
                 event.test_failure = self.detector.extract_test_failure(event)
+            if payload.kind == EventKind.GIT_DIFF:
+                event.git_diff = self.detector.extract_git_diff_fingerprint(event)
 
             self._append_event_locked(session, event)
 
@@ -417,6 +419,8 @@ class WatchdogStore:
                     event.error_signature = self.detector.error_signature(event)
                 if kind == EventKind.TEST_FAILURE:
                     event.test_failure = self.detector.extract_test_failure(event)
+                if kind == EventKind.GIT_DIFF:
+                    event.git_diff = self.detector.extract_git_diff_fingerprint(event)
                 self._append_event_locked(session, event)
         
             decision = self.detector.evaluate(list(session.events))
