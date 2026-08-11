@@ -8,19 +8,59 @@ from difflib import SequenceMatcher
 from .config import WatchdogSettings
 from .models import DetectorDecision, EventKind, WatchdogEvent
 
-NON_WORD_RE = re.compile(r"[^a-z0-9_/\-.]+")
-DIGIT_RE = re.compile(r"\d+")
+# --- TASK-05: Error Normalization Regexes ---
+UUID_RE = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b")
+ISO_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}(?:[Tt ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)?")
+TIMESTAMP_RE = re.compile(r"\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}")
+
+# Directories (Specificity order matters!)
+TMP_DIR_RE = re.compile(
+    r"(?:/private/var/folders/[^\s]+|/tmp/[^\s]+|[A-Z]:\\Temp\\[^\s]+|[A-Z]:\\tmp\\[^\s]+)",
+    re.IGNORECASE,
+)
+USER_DIR_RE = re.compile(
+    r"(?:/Users/[^\s]+|/home/[^\s]+|[A-Z]:\\Users\\[^\s]+)",
+    re.IGNORECASE,
+)
+ABS_PATH_RE = re.compile(r"(?:/[^\s]+|[A-Z]:\\[^\s]+)", re.IGNORECASE)
+
+PORT_RE = re.compile(r":(\d{2,5})\b")
 HEX_RE = re.compile(r"\b[0-9a-f]{7,}\b")
+DIGIT_RE = re.compile(r"\d+")
+
+# Added < and > to allowed characters so placeholders like <path> survive
+NON_WORD_RE = re.compile(r"[^a-z0-9_/\-<>.]+")
 WS_RE = re.compile(r"\s+")
 
 
 def normalize_text(value: str) -> str:
     lowered = value.lower()
+    
+    # 1. UUIDs
+    lowered = UUID_RE.sub("<uuid>", lowered)
+    
+    # 2. Timestamps
+    lowered = ISO_DATE_RE.sub("<timestamp>", lowered)
+    lowered = TIMESTAMP_RE.sub("<timestamp>", lowered)
+    
+    # 3. Ports
+    lowered = PORT_RE.sub(":<port>", lowered)
+    
+    # 4. Temp & User Directories (must run before generic paths)
+    lowered = TMP_DIR_RE.sub("<tmp_dir>", lowered)
+    lowered = USER_DIR_RE.sub("<user_path>", lowered)
+    
+    # 5. Generic Paths
+    lowered = ABS_PATH_RE.sub("<path>", lowered)
+    
+    # 6. Hex & Digits
     lowered = HEX_RE.sub("<hex>", lowered)
     lowered = DIGIT_RE.sub("<n>", lowered)
+    
+    # 7. Non-word characters cleanup (allow < and > for placeholders)
     lowered = NON_WORD_RE.sub(" ", lowered)
+    
     return WS_RE.sub(" ", lowered).strip()
-
 
 def token_set(value: str) -> set[str]:
     return {token for token in normalize_text(value).split(" ") if len(token) > 2}
