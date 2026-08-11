@@ -6,21 +6,61 @@ from collections.abc import Iterable
 from difflib import SequenceMatcher
 
 from .config import WatchdogSettings
-from .models import DetectorDecision, EventKind, WatchdogEvent
+from .models import DetectorDecision, EventKind, TestFailureIdentity, WatchdogEvent
 
-NON_WORD_RE = re.compile(r"[^a-z0-9_/\-.]+")
-DIGIT_RE = re.compile(r"\d+")
+# --- TASK-05: Error Normalization Regexes ---
+UUID_RE = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b")
+ISO_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}(?:[Tt ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)?")
+TIMESTAMP_RE = re.compile(r"\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}")
+
+# Directories (Specificity order matters!)
+TMP_DIR_RE = re.compile(
+    r"(?:/private/var/folders/[^\s]+|/tmp/[^\s]+|[A-Z]:\\Temp\\[^\s]+|[A-Z]:\\tmp\\[^\s]+)",
+    re.IGNORECASE,
+)
+USER_DIR_RE = re.compile(
+    r"(?:/Users/[^\s]+|/home/[^\s]+|[A-Z]:\\Users\\[^\s]+)",
+    re.IGNORECASE,
+)
+ABS_PATH_RE = re.compile(r"(?:/[^\s]+|[A-Z]:\\[^\s]+)", re.IGNORECASE)
+
+PORT_RE = re.compile(r":(\d{2,5})\b")
 HEX_RE = re.compile(r"\b[0-9a-f]{7,}\b")
+DIGIT_RE = re.compile(r"\d+")
+
+# Added < and > to allowed characters so placeholders like <path> survive
+NON_WORD_RE = re.compile(r"[^a-z0-9_/\-<>.]+")
 WS_RE = re.compile(r"\s+")
 
 
 def normalize_text(value: str) -> str:
     lowered = value.lower()
+    
+    # 1. UUIDs
+    lowered = UUID_RE.sub("<uuid>", lowered)
+    
+    # 2. Timestamps
+    lowered = ISO_DATE_RE.sub("<timestamp>", lowered)
+    lowered = TIMESTAMP_RE.sub("<timestamp>", lowered)
+    
+    # 3. Ports
+    lowered = PORT_RE.sub(":<port>", lowered)
+    
+    # 4. Temp & User Directories (must run before generic paths)
+    lowered = TMP_DIR_RE.sub("<tmp_dir>", lowered)
+    lowered = USER_DIR_RE.sub("<user_path>", lowered)
+    
+    # 5. Generic Paths
+    lowered = ABS_PATH_RE.sub("<path>", lowered)
+    
+    # 6. Hex & Digits
     lowered = HEX_RE.sub("<hex>", lowered)
     lowered = DIGIT_RE.sub("<n>", lowered)
+    
+    # 7. Non-word characters cleanup (allow < and > for placeholders)
     lowered = NON_WORD_RE.sub(" ", lowered)
+    
     return WS_RE.sub(" ", lowered).strip()
-
 
 def token_set(value: str) -> set[str]:
     return {token for token in normalize_text(value).split(" ") if len(token) > 2}
@@ -59,6 +99,19 @@ class LoopDetector:
     def error_signature(self, event: WatchdogEvent) -> str:
         source = event.metadata.get("error") or event.summary
         return normalize_text(str(source))
+    
+    def extract_test_failure(self, event: WatchdogEvent) -> TestFailureIdentity:
+        meta = event.metadata
+        stacktrace = str(meta.get("stacktrace") or meta.get("error") or event.summary or "")
+        return TestFailureIdentity(
+            framework=str(meta.get("framework", "")),
+            suite=str(meta.get("suite", "")),
+            test_id=str(meta.get("test_id", "")),
+            command=str(meta.get("command", "")),
+            exit_code=meta.get("exit_code"),
+            failure_type=str(meta.get("failure_type", "")),
+            stacktrace_signature=normalize_text(stacktrace),
+        )
 
     def evaluate(self, events: list[WatchdogEvent]) -> DetectorDecision:
         recent = events[-self.settings.recent_window :]
@@ -136,6 +189,29 @@ class LoopDetector:
                 for event in error_events
                 if event.error_signature in recurrent_errors
             )
+                    # TASK-06: Repeated identical test failure detection
+        test_failure_events = [
+            event
+            for event in recent
+            if event.kind == EventKind.TEST_FAILURE and event.test_failure is not None
+        ]
+        if test_failure_events:
+            tf_counter = Counter(
+                event.test_failure.identity() for event in test_failure_events
+            )
+            repeated_tf = [
+                identity for identity, count in tf_counter.items() if count >= 2 and identity
+            ]
+            if repeated_tf:
+                score += self.settings.repeated_test_failure_weight
+                reasons.append(
+                    f"The same test failure repeated {max(tf_counter.values())} times."
+                )
+                triggering_event_ids.extend(
+                    event.event_id
+                    for event in test_failure_events
+                    if event.test_failure.identity() in repeated_tf
+                )
 
         oscillation_pairs = 0
         for left, right in zip(recent, recent[1:], strict=False):

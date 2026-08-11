@@ -80,8 +80,11 @@ class WatchdogStore:
                 **payload.model_dump(),
                 fingerprint=self.detector.fingerprint(payload.kind, payload.summary, payload.files),
             )
+                
             if payload.kind in {EventKind.TOOL_ERROR, EventKind.TEST_FAILURE}:
                 event.error_signature = self.detector.error_signature(event)
+            if payload.kind == EventKind.TEST_FAILURE:
+                event.test_failure = self.detector.extract_test_failure(event)
 
             self._append_event_locked(session, event)
 
@@ -302,7 +305,7 @@ class WatchdogStore:
                     request_count=sum(
                         1 for event in session.events if event.kind == EventKind.AGENT_REQUEST
                     ),
-                    recommendation="Do not resume until a human rewrites the plan.",
+                    recommendation="Do not resume until a Human rewrites the plan.",
                 )
             event = WatchdogEvent(
                 session_id=session_id,
@@ -412,9 +415,12 @@ class WatchdogStore:
                 )
                 if kind in {EventKind.TOOL_ERROR, EventKind.TEST_FAILURE}:
                     event.error_signature = self.detector.error_signature(event)
+                if kind == EventKind.TEST_FAILURE:
+                    event.test_failure = self.detector.extract_test_failure(event)
                 self._append_event_locked(session, event)
-
+        
             decision = self.detector.evaluate(list(session.events))
+
             if decision.paused:
                 session.incident = self._build_incident_locked(session_id, session, decision)
                 session.acknowledged_note = "Guided trial seeded for first-run evaluation."

@@ -11,7 +11,6 @@ from pydantic import BaseModel, Field, model_validator
 def utc_now() -> datetime:
     return datetime.now(UTC)
 
-
 class EventKind(StrEnum):
     # V1 Events
     AGENT_REQUEST = "agent_request"
@@ -76,6 +75,18 @@ class EventKind(StrEnum):
     def is_file_modification(self) -> bool:
         return self in {self.FILE_EDIT, self.PATCH_APPLY, self.FILE_CREATE, self.FILE_DELETE}
 
+class TestFailureIdentity(BaseModel):
+    framework: str = ""
+    suite: str = ""
+    test_id: str = ""
+    command: str = ""
+    exit_code: int | None = None
+    failure_type: str = ""
+    stacktrace_signature: str = ""
+
+    def identity(self) -> str:
+        parts = [self.suite, self.test_id, self.failure_type, self.stacktrace_signature]
+        return "|".join(p for p in parts if p)
 
 class SessionIdentity(BaseModel):
     watchdog_session_id: str = Field(min_length=1)
@@ -111,13 +122,14 @@ class WatchdogEventCreate(BaseModel):
         # Ensure session_id always reflects the canonical watchdog ID for backwards compat
         self.session_id = self.identity.watchdog_session_id
         return self
-
-
+    
+    
 class WatchdogEvent(WatchdogEventCreate):
     event_id: str = Field(default_factory=lambda: str(uuid4()))
     created_at: datetime = Field(default_factory=utc_now)
     fingerprint: str = ""
     error_signature: str = ""
+    test_failure: TestFailureIdentity | None = None
 
 
 class DetectorDecision(BaseModel):
