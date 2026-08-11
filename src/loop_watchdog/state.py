@@ -272,7 +272,7 @@ class WatchdogStore:
                 session_id=session_id,
                 identity=session.identity,
                 kind=EventKind.MANUAL_ARCHIVE,
-                summary=payload.note or "Session archived by an operator.",
+                summary=payload.note or "Session archived by an Operator.",
                 fingerprint=self.detector.fingerprint(
                     EventKind.MANUAL_ARCHIVE,
                     payload.note,
@@ -305,7 +305,7 @@ class WatchdogStore:
                     request_count=sum(
                         1 for event in session.events if event.kind == EventKind.AGENT_REQUEST
                     ),
-                    recommendation="Do not resume until a human rewrites the plan.",
+                    recommendation="Do not resume until a HUMAN rewrites the plan.",
                 )
             event = WatchdogEvent(
                 session_id=session_id,
