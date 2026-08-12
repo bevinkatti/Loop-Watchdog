@@ -94,6 +94,67 @@ def summarize_signature(summary: str, files: Iterable[str]) -> str:
     joined_files = " ".join(sorted(set(files)))
     return normalize_text(f"{summary} {joined_files}")
 
+#task 07
+DIFF_HUNK_RE = re.compile(r"^@@.*$")
+DIFF_SYMBOL_RE = re.compile(
+    r"^\s*(?:def|class|async\s+def|function|func|fn)\s+([A-Za-z_][A-Za-z0-9_]*)"
+)
+
+def hash_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
+
+def normalize_diff(diff: str) -> str:
+    lines: list[str] = []
+    for raw_line in diff.splitlines():
+        line = raw_line.rstrip()
+        if not line:
+            continue
+        if line.startswith("index "):
+            continue
+        if DIFF_HUNK_RE.match(line):
+            lines.append("@@")
+            continue
+        if line[:1] in ("+", "-"):
+            marker = line[:1]
+            content = normalize_text(line[1:])
+            if content:
+                lines.append(marker + content)
+        else:
+            content = normalize_text(line)
+            if content:
+                lines.append(content)
+    return "\n".join(lines)
+
+def reverse_normalized_diff(normalized: str) -> str:
+    lines: list[str] = []
+    for line in normalized.splitlines():
+        if line[:1] == "+":
+            lines.append("-" + line[1:])
+        elif line[:1] == "-":
+            lines.append("+" + line[1:])
+        else:
+            lines.append(line)
+    return "\n".join(lines)
+
+def count_diff_lines(diff: str) -> tuple[int, int]:
+    added = removed = 0
+    for line in diff.splitlines():
+        if line.startswith("+++") or line.startswith("---"):
+            continue
+        if line.startswith("+"):
+            added += 1
+        elif line.startswith("-"):
+            removed += 1
+    return added, removed
+
+def extract_diff_symbols(diff: str) -> list[str]:
+    symbols: set[str] = set()
+    for line in diff.splitlines():
+        if line[:1] in ("+", "-"):
+            match = DIFF_SYMBOL_RE.search(line[1:])
+            if match:
+                symbols.add(match.group(1))
+    return sorted(symbols)
 
 class LoopDetector:
     def __init__(self, settings: WatchdogSettings) -> None:
@@ -119,6 +180,28 @@ class LoopDetector:
             stacktrace_signature=normalize_text(stacktrace),
         )
         
+    def extract_diff_fingerprint(self, event: WatchdogEvent) -> GitDiffFingerprint:
+        meta = event.metadata
+        raw_diff = str(meta.get("diff", ""))
+
+        lines_added = meta.get("lines_added")
+        lines_removed = meta.get("lines_removed")
+        if lines_added is None or lines_removed is None:
+            counted_added, counted_removed = count_diff_lines(raw_diff)
+            lines_added = counted_added if lines_added is None else lines_added
+            lines_removed = counted_removed if lines_removed is None else lines_removed
+
+        normalized = normalize_diff(raw_diff)
+        return GitDiffFingerprint(
+            diff_hash=hash_text(raw_diff),
+            normalized_diff_hash=hash_text(normalized),
+            reversed_hash=hash_text(reverse_normalized_diff(normalized)),
+            files=sorted(set(event.files)),
+            symbols=extract_diff_symbols(raw_diff),
+            lines_added=int(lines_added),
+            lines_removed=int(lines_removed),
+        )
+        
     def extract_git_diff_fingerprint(self, event: WatchdogEvent) -> GitDiffFingerprint:
         meta = event.metadata
         raw_diff = str(meta.get("diff", ""))
@@ -128,11 +211,33 @@ class LoopDetector:
         diff_hash = hashlib.sha256(raw_diff.encode("utf-8")).hexdigest()[:16] if raw_diff else ""
 
         # Normalize diff: strip index hashes, hunk line numbers, file paths
-        normalized = DIFF_INDEX_RE.sub("", raw_diff)
-        normalized = DIFF_HUNK_RE.sub("@@", normalized)
-        normalized = DIFF_PATH_RE.sub("", normalized)
-        normalized = normalize_text(normalized)
+        pre_norm = DIFF_INDEX_RE.sub("", raw_diff)
+        pre_norm = DIFF_HUNK_RE.sub("@@", pre_norm)
+        pre_norm = DIFF_PATH_RE.sub("", pre_norm)
+
+        # We must preserve '+' and '-' markers to detect reversions!
+        norm_lines = []
+        rev_lines = []
+        for line in pre_norm.splitlines():
+            if line.startswith("+++") or line.startswith("---"):
+                continue
+            if line.startswith("+"):
+                # Normalize the content, but keep the '+'
+                norm_lines.append("+ " + normalize_text(line[1:]))
+                rev_lines.append("- " + normalize_text(line[1:]))
+            elif line.startswith("-"):
+                # Normalize the content, but keep the '-'
+                norm_lines.append("- " + normalize_text(line[1:]))
+                rev_lines.append("+ " + normalize_text(line[1:]))
+            else:
+                norm_lines.append("  " + normalize_text(line))
+                rev_lines.append("  " + normalize_text(line))
+        
+        normalized = "\n".join(norm_lines)
         normalized_diff_hash = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16] if normalized else ""
+        
+        reversed_diff = "\n".join(rev_lines)
+        reversed_hash = hashlib.sha256(reversed_diff.encode("utf-8")).hexdigest()[:16] if reversed_diff else ""
 
         # Extract symbols touched
         symbols = list(set(DIFF_SYMBOL_RE.findall(raw_diff)))
@@ -144,6 +249,7 @@ class LoopDetector:
         return GitDiffFingerprint(
             diff_hash=diff_hash,
             normalized_diff_hash=normalized_diff_hash,
+            reversed_hash=reversed_hash,
             files=files,
             symbols=symbols,
             lines_added=lines_added,
@@ -192,23 +298,56 @@ class LoopDetector:
                 f"{similar_request_pairs + 1} times in the recent window."
             )
 
-        repeated_file_group: tuple[str, ...] = ()
-        file_group_counter = Counter(
-            tuple(sorted(set(event.files))) for event in file_events if event.files
-        )
-        if file_group_counter:
-            repeated_file_group, file_group_count = file_group_counter.most_common(1)[0]
+        # TASK-08: File Cluster Similarity
+        file_sets = [tuple(sorted(set(event.files))) for event in file_events if event.files]
+        
+        if file_sets:
+            # Greedy clustering based on Jaccard similarity of file sets
+            clusters: list[list[tuple[str, ...]]] = []
+            CLUSTER_SIMILARITY_THRESHOLD = 0.6
+            
+            for fset in file_sets:
+                assigned = False
+                for cluster in clusters:
+                    representative = cluster[0]
+                    # Calculate Jaccard similarity between the two sets
+                    intersect = len(set(representative) & set(fset))
+                    union = len(set(representative) | set(fset))
+                    sim = intersect / union if union > 0 else 1.0
+                    
+                    if sim >= CLUSTER_SIMILARITY_THRESHOLD:
+                        cluster.append(fset)
+                        assigned = True
+                        break
+                if not assigned:
+                    clusters.append([fset])
+                    
+            # Find the cluster with the most events
+            largest_cluster = max(clusters, key=len)
+            file_group_count = len(largest_cluster)
+            
             if file_group_count >= self.settings.file_repeat_threshold:
                 score += self.settings.repeated_file_weight
-                repeated_files = list(repeated_file_group)
+                
+                # The "core" files are the ones present in ALL sets of this cluster
+                core_files = set(largest_cluster[0])
+                for fset in largest_cluster[1:]:
+                    core_files &= set(fset)
+                    
+                # Fallback: if intersection is somehow empty, use union
+                if not core_files:
+                    for fset in largest_cluster:
+                        core_files |= set(fset)
+                        
+                repeated_files = sorted(list(core_files))
                 reasons.append(
-                    f"The same file cluster was touched {file_group_count} times "
+                    f"A similar file cluster (overlapping files) was touched {file_group_count} times "
                     f"without a clear recovery signal."
                 )
                 triggering_event_ids.extend(
                     event.event_id
                     for event in file_events
-                    if tuple(sorted(set(event.files))) == repeated_file_group
+                    if event.files and tuple(sorted(set(event.files))) in largest_cluster
                 )
 
         error_counter = Counter(event.error_signature for event in error_events)
@@ -250,14 +389,18 @@ class LoopDetector:
                     if event.test_failure.identity() in repeated_tf
                 )
                 
-        # TASK-07: Repeated / near-identical patch detection
+        # TASK-07: Repeated / reverted patch detection
         diff_events = [
             event for event in recent
-            if event.kind == EventKind.GIT_DIFF and event.git_diff is not None
+            if event.kind in {EventKind.GIT_DIFF, EventKind.PATCH_APPLY} 
+            and event.git_diff is not None
+            and event.git_diff.normalized_diff_hash
         ]
         if diff_events:
-            # Repeated identical patches
-            diff_hash_counter = Counter(e.git_diff.diff_hash for e in diff_events if e.git_diff.diff_hash)
+            # 1. Identical patches (raw hash matches)
+            diff_hash_counter = Counter(
+                e.git_diff.diff_hash for e in diff_events if e.git_diff.diff_hash
+            )
             repeated_diffs = [h for h, c in diff_hash_counter.items() if c >= 2]
             if repeated_diffs:
                 score += self.settings.repeated_patch_weight
@@ -269,14 +412,44 @@ class LoopDetector:
                     if e.git_diff.diff_hash in repeated_diffs
                 )
 
-            # Near-identical patches (same normalized hash, different raw hash)
-            norm_counter = Counter(e.git_diff.normalized_diff_hash for e in diff_events if e.git_diff.normalized_diff_hash)
+            # 2. Near-identical patches (normalized hash matches, raw hash differs)
+            norm_counter = Counter(
+                e.git_diff.normalized_diff_hash for e in diff_events 
+                if e.git_diff.normalized_diff_hash and e.git_diff.diff_hash not in repeated_diffs
+            )
             near_identical = [h for h, c in norm_counter.items() if c >= 2]
-            if near_identical and not repeated_diffs:
+            if near_identical:
                 score += self.settings.repeated_patch_weight * 0.7
                 reasons.append(
                     "Near-identical patches were applied repeatedly with minor variations."
                 )
+                triggering_event_ids.extend(
+                    e.event_id for e in diff_events
+                    if e.git_diff.normalized_diff_hash in near_identical and e.git_diff.diff_hash not in repeated_diffs
+                )
+
+            # 3. Revert detection: A patch was applied, and then its inverse was applied
+            seen_hashes: set[str] = set()
+            revert_detected = False
+            for event in diff_events:
+                fp = event.git_diff
+                if fp.normalized_diff_hash in seen_hashes:
+                    continue
+                seen_hashes.add(fp.normalized_diff_hash)
+                for other in diff_events:
+                    if (
+                        other.event_id != event.event_id
+                        and other.git_diff
+                        and other.git_diff.normalized_diff_hash == fp.reversed_hash
+                    ):
+                        revert_detected = True
+                        triggering_event_ids.extend([event.event_id, other.event_id])
+                        break
+                if revert_detected:
+                    break
+            if revert_detected:
+                score += self.settings.reverted_patch_weight
+                reasons.append("A patch was applied and then reverted within the window.")
 
         oscillation_pairs = 0
         for left, right in zip(recent, recent[1:], strict=False):

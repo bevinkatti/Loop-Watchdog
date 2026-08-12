@@ -40,6 +40,7 @@ class WatchdogSettings(BaseSettings):
     repeated_file_weight: float = 1.8
     repeated_test_failure_weight: float = 3.0
     repeated_patch_weight: float = 2.5
+    reverted_patch_weight: float = 2.5
     oscillation_weight: float = 1.6
     no_progress_weight: float = 1.2
 

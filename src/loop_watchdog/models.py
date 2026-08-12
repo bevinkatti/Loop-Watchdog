@@ -91,6 +91,7 @@ class TestFailureIdentity(BaseModel):
 class GitDiffFingerprint(BaseModel):
     diff_hash: str = ""
     normalized_diff_hash: str = ""
+    reversed_hash: str = ""
     files: list[str] = Field(default_factory=list)
     symbols: list[str] = Field(default_factory=list)
     lines_added: int = 0
@@ -98,7 +99,7 @@ class GitDiffFingerprint(BaseModel):
 
     def identity(self) -> str:
         return self.normalized_diff_hash or self.diff_hash
-
+    
 class SessionIdentity(BaseModel):
     watchdog_session_id: str = Field(min_length=1)
     repository: str = ""
@@ -140,6 +141,7 @@ class WatchdogEvent(WatchdogEventCreate):
     created_at: datetime = Field(default_factory=utc_now)
     fingerprint: str = ""
     error_signature: str = ""
+    git_diff_fingerprint: GitDiffFingerprint | None = None
     test_failure: TestFailureIdentity | None = None
     git_diff: GitDiffFingerprint | None = None
 
