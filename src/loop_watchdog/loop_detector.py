@@ -7,7 +7,14 @@ from collections.abc import Iterable
 from difflib import SequenceMatcher
 
 from .config import WatchdogSettings
-from .models import DetectorDecision, EventKind, GitDiffFingerprint, TestFailureIdentity, WatchdogEvent
+from .models import (
+    DetectorDecision,
+    EventKind,
+    GitDiffFingerprint,
+    HealthState,
+    TestFailureIdentity,
+    WatchdogEvent,
+)
 
 # --- TASK-05: Error Normalization Regexes ---
 UUID_RE = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b")
@@ -314,7 +321,7 @@ class LoopDetector:
         triggering_event_ids: list[str] = []
         progress_score = 0.0
         progress_signals: list[str] = []
-        unique_strategy_count = 0  # Clean up the ugly 'in locals()' check from Task 10
+        unique_strategy_count = 0 
 
         request_events = [event for event in recent if event.kind == EventKind.AGENT_REQUEST]
         file_events = [
@@ -586,7 +593,25 @@ class LoopDetector:
                 "Spend is growing without a passing test or a recovery event in the recent window."
             )
 
+        # TASK-13: Risk + Confidence Engine
         paused = score >= self.settings.pause_score_threshold and len(reasons) >= 2
+
+        # Calculate Confidence: 0.0 to 1.0 based on how many distinct signals are firing
+        # Each major signal (reason) increases our confidence that the agent is looping
+        
+        confidence = min(1.0, len(reasons) * 0.25)
+
+        # Determine Health State
+        if score >= self.settings.critical_score_threshold:
+            state = HealthState.CRITICAL
+        elif score >= self.settings.high_risk_score_threshold:
+            state = HealthState.HIGH_RISK
+        elif score >= self.settings.warning_score_threshold:
+            state = HealthState.WARNING
+        elif score >= self.settings.watch_score_threshold:
+            state = HealthState.WATCH
+        else:
+            state = HealthState.HEALTHY 
         recommendation = (
             "Pause the agent, inspect the repeated file cluster, "
             "and require a human-approved plan before resuming."
@@ -609,6 +634,8 @@ class LoopDetector:
             paused=paused,
             score=round(score, 2),
             progress_score=round(progress_score, 2),
+            confidence=round(confidence, 2),
+            state=state,
             progress_signals=progress_signals,
             reasons=reasons,
             repeated_files=repeated_files,

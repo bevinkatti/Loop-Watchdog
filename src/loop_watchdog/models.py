@@ -45,7 +45,7 @@ class EventKind(StrEnum):
     TASK_STARTED = "task_started"
     TASK_PROGRESS = "task_progress"
     TASK_COMPLETED = "task_completed"
-
+    
     @property
     def is_v1(self) -> bool:
         return self in {
@@ -75,6 +75,43 @@ class EventKind(StrEnum):
     def is_file_modification(self) -> bool:
         return self in {self.FILE_EDIT, self.PATCH_APPLY, self.FILE_CREATE, self.FILE_DELETE}
 
+    
+class HealthState(StrEnum):
+    HEALTHY = "healthy"
+    WATCH = "watch"
+    WARNING = "warning"
+    HIGH_RISK = "high_risk"
+    CRITICAL = "critical"
+
+    @property
+    def is_v1(self) -> bool:
+        return self in {
+            self.AGENT_REQUEST,
+            self.AGENT_RESPONSE,
+            self.FILE_EDIT,
+            self.PATCH_APPLY,
+            self.TOOL_ERROR,
+            self.TEST_FAILURE,
+            self.TEST_PASS,
+            self.MANUAL_RESUME,
+            self.MANUAL_KILL,
+            self.MANUAL_ACKNOWLEDGE,
+            self.MANUAL_ARCHIVE,
+            self.SESSION_NOTE,
+        }
+
+    @property
+    def is_progress(self) -> bool:
+        return self in {self.TEST_PASS, self.BUILD_SUCCESS, self.LINT_PASS, self.TASK_COMPLETED}
+
+    @property
+    def is_failure(self) -> bool:
+        return self in {self.TOOL_ERROR, self.TEST_FAILURE, self.BUILD_FAILURE, self.LINT_FAILURE}
+
+    @property
+    def is_file_modification(self) -> bool:
+        return self in {self.FILE_EDIT, self.PATCH_APPLY, self.FILE_CREATE, self.FILE_DELETE}
+    
 class TestFailureIdentity(BaseModel):
     framework: str = ""
     suite: str = ""
@@ -152,6 +189,8 @@ class DetectorDecision(BaseModel):
     reasons: list[str] = Field(default_factory=list)
     unique_strategies: int = 0
     progress_score: float = 0.0
+    confidence: float = 0.0
+    state: HealthState = HealthState.HEALTHY
     progress_signals: list[str] = Field(default_factory=list)
     repeated_files: list[str] = Field(default_factory=list)
     repeated_errors: list[str] = Field(default_factory=list)

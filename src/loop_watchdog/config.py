@@ -35,6 +35,10 @@ class WatchdogSettings(BaseSettings):
     error_similarity_threshold: float = 0.84
     file_repeat_threshold: int = 3
     strategy_similarity_threshold: float = 0.7
+    watch_score_threshold: float = 2.0
+    warning_score_threshold: float = 4.0
+    high_risk_score_threshold: float = 6.0
+    critical_score_threshold: float = 8.0
 
     repeated_request_weight: float = 1.4
     repeated_error_weight: float = 2.0
