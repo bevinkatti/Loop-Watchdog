@@ -13,6 +13,7 @@ from .models import (
     DetectorDecision,
     EventKind,
     GuidedTrialResponse,
+    HealthState,
     LoopIncident,
     PersistedSessionState,
     PersistedStore,
@@ -44,6 +45,7 @@ class SessionState:
     cooldown_until: datetime | None = None
     required_plan_digest: str = ""
     required_plan_preview: str = ""
+    current_state: HealthState = HealthState.HEALTHY
 
 
 class WatchdogStore:
@@ -97,6 +99,8 @@ class WatchdogStore:
                 return event, None
 
             decision = self.detector.evaluate(list(session.events))
+            session.current_state = decision.state
+            
             if not decision.paused:
                 self._persist_locked()
                 return event, None
@@ -118,6 +122,7 @@ class WatchdogStore:
                 identity=session.identity,
                 paused=snapshot.paused,
                 event_count=snapshot.event_count,
+                current_state=snapshot.current_state,
                 last_event_at=snapshot.last_event_at,
                 incident=session.incident,
                 acknowledged_at=snapshot.acknowledged_at,
@@ -490,6 +495,7 @@ class WatchdogStore:
             last_event_at=last_event.created_at if last_event else None,
             last_summary=last_summary,
             current_stage=current_stage,
+            current_state=session.current_state,
             metrics=SessionMetrics(
                 request_count=counts[EventKind.AGENT_REQUEST],
                 response_count=counts[EventKind.AGENT_RESPONSE],

@@ -182,11 +182,17 @@ class WatchdogEvent(WatchdogEventCreate):
     test_failure: TestFailureIdentity | None = None
     git_diff: GitDiffFingerprint | None = None
 
-
+class DetectorSignal(BaseModel):
+    signal_type: str
+    weight: float
+    detail: str = ""
+    
 class DetectorDecision(BaseModel):
     paused: bool = False
     score: float = 0.0
+    soft_pause: bool = False
     reasons: list[str] = Field(default_factory=list)
+    signals: list[DetectorSignal] = Field(default_factory=list)
     unique_strategies: int = 0
     progress_score: float = 0.0
     confidence: float = 0.0
@@ -216,6 +222,7 @@ class SessionStatus(BaseModel):
     session_id: str
     identity: SessionIdentity | None = None
     paused: bool
+    current_state: HealthState = HealthState.HEALTHY
     event_count: int
     last_event_at: datetime | None = None
     incident: LoopIncident | None = None
@@ -251,6 +258,7 @@ class SessionSnapshot(BaseModel):
     session_id: str
     identity: SessionIdentity | None = None
     paused: bool
+    current_state: HealthState = HealthState.HEALTHY
     created_at: datetime
     updated_at: datetime
     event_count: int
