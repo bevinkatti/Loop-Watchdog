@@ -1,23 +1,36 @@
 from __future__ import annotations
 
-import re
 import hashlib
+import re
 from collections import Counter
 from collections.abc import Iterable
 from difflib import SequenceMatcher
 
 from .config import WatchdogSettings
-from .models import DetectorDecision, EventKind, GitDiffFingerprint, TestFailureIdentity, WatchdogEvent
+from .models import (
+    DetectorDecision,
+    DetectorSignal,
+    EventKind,
+    GitDiffFingerprint,
+    HealthState,
+    TestFailureIdentity,
+    WatchdogEvent,
+)
 
 # --- TASK-05: Error Normalization Regexes ---
 UUID_RE = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b")
-ISO_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}(?:[Tt ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)?")
+ISO_DATE_RE = re.compile(
+    r"\d{4}-\d{2}-\d{2}(?:[Tt ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)?"
+)
 TIMESTAMP_RE = re.compile(r"\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}")
 # TASK-07: Diff normalization
 DIFF_INDEX_RE = re.compile(r"^index [0-9a-f]+\.\.[0-9a-f]+.*$", re.MULTILINE)
 DIFF_HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@.*$", re.MULTILINE)
 DIFF_PATH_RE = re.compile(r"^(?:---|\+\+\+) [ab]/.*$", re.MULTILINE)
-DIFF_SYMBOL_RE = re.compile(r"^[ +-]\s*(?:def |class |function |const |let |var |fn |pub fn )\s*(\w+)", re.MULTILINE)
+DIFF_SYMBOL_RE = re.compile(
+    r"^[ +-]\s*(?:def |class |function |const |let |var |fn |pub fn )\s*(\w+)",
+    re.MULTILINE,
+)
 
 # Directories (Specificity order matters!)
 TMP_DIR_RE = re.compile(
@@ -94,6 +107,67 @@ def summarize_signature(summary: str, files: Iterable[str]) -> str:
     joined_files = " ".join(sorted(set(files)))
     return normalize_text(f"{summary} {joined_files}")
 
+#task 07
+DIFF_HUNK_RE = re.compile(r"^@@.*$")
+DIFF_SYMBOL_RE = re.compile(
+    r"^\s*(?:def|class|async\s+def|function|func|fn)\s+([A-Za-z_][A-Za-z0-9_]*)"
+)
+
+def hash_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
+
+def normalize_diff(diff: str) -> str:
+    lines: list[str] = []
+    for raw_line in diff.splitlines():
+        line = raw_line.rstrip()
+        if not line:
+            continue
+        if line.startswith("index "):
+            continue
+        if DIFF_HUNK_RE.match(line):
+            lines.append("@@")
+            continue
+        if line[:1] in ("+", "-"):
+            marker = line[:1]
+            content = normalize_text(line[1:])
+            if content:
+                lines.append(marker + content)
+        else:
+            content = normalize_text(line)
+            if content:
+                lines.append(content)
+    return "\n".join(lines)
+
+def reverse_normalized_diff(normalized: str) -> str:
+    lines: list[str] = []
+    for line in normalized.splitlines():
+        if line[:1] == "+":
+            lines.append("-" + line[1:])
+        elif line[:1] == "-":
+            lines.append("+" + line[1:])
+        else:
+            lines.append(line)
+    return "\n".join(lines)
+
+def count_diff_lines(diff: str) -> tuple[int, int]:
+    added = removed = 0
+    for line in diff.splitlines():
+        if line.startswith("+++") or line.startswith("---"):
+            continue
+        if line.startswith("+"):
+            added += 1
+        elif line.startswith("-"):
+            removed += 1
+    return added, removed
+
+def extract_diff_symbols(diff: str) -> list[str]:
+    symbols: set[str] = set()
+    for line in diff.splitlines():
+        if line[:1] in ("+", "-"):
+            match = DIFF_SYMBOL_RE.search(line[1:])
+            if match:
+                symbols.add(match.group(1))
+    return sorted(symbols)
 
 class LoopDetector:
     def __init__(self, settings: WatchdogSettings) -> None:
@@ -119,6 +193,74 @@ class LoopDetector:
             stacktrace_signature=normalize_text(stacktrace),
         )
         
+    def extract_diff_fingerprint(self, event: WatchdogEvent) -> GitDiffFingerprint:
+        meta = event.metadata
+        raw_diff = str(meta.get("diff", ""))
+
+        lines_added = meta.get("lines_added")
+        lines_removed = meta.get("lines_removed")
+        if lines_added is None or lines_removed is None:
+            counted_added, counted_removed = count_diff_lines(raw_diff)
+            lines_added = counted_added if lines_added is None else lines_added
+            lines_removed = counted_removed if lines_removed is None else lines_removed
+
+        normalized = normalize_diff(raw_diff)
+        return GitDiffFingerprint(
+            diff_hash=hash_text(raw_diff),
+            normalized_diff_hash=hash_text(normalized),
+            reversed_hash=hash_text(reverse_normalized_diff(normalized)),
+            files=sorted(set(event.files)),
+            symbols=extract_diff_symbols(raw_diff),
+            lines_added=int(lines_added),
+            lines_removed=int(lines_removed),
+        )
+        
+    def build_strategy_fingerprint(self, events: list[WatchdogEvent]) -> str:
+        """Build a composite strategy fingerprint from a set of events."""
+        parts: list[str] = []
+
+        # Request text (the agent's stated goal)
+        requests = [e for e in events if e.kind == EventKind.AGENT_REQUEST]
+        if requests:
+            parts.append(f"req:{normalize_text(requests[-1].summary)}")
+
+        # Files touched
+        files: set[str] = set()
+        for e in events:
+            if e.files:
+                files.update(e.files)
+        if files:
+            parts.append(f"files:{','.join(sorted(files))}")
+
+        # Error signatures encountered
+        errors: set[str] = set()
+        for e in events:
+            if e.error_signature:
+                errors.add(e.error_signature)
+        if errors:
+            parts.append(f"errors:{','.join(sorted(errors))}")
+
+        # Diff fingerprints applied
+        diffs: set[str] = set()
+        for e in events:
+            if e.git_diff and e.git_diff.normalized_diff_hash:
+                diffs.add(e.git_diff.normalized_diff_hash)
+        if diffs:
+            parts.append(f"diffs:{','.join(sorted(diffs))}")
+
+        return "|".join(parts)
+
+    def strategy_similarity(self, left: str, right: str) -> float:
+        """Calculate similarity between two strategy fingerprints."""
+        if not left and not right:
+            return 1.0
+        if not left or not right:
+            return 0.0
+        return max(
+            jaccard_similarity(left, right),
+            sequence_similarity(left, right),
+        )
+        
     def extract_git_diff_fingerprint(self, event: WatchdogEvent) -> GitDiffFingerprint:
         meta = event.metadata
         raw_diff = str(meta.get("diff", ""))
@@ -128,22 +270,62 @@ class LoopDetector:
         diff_hash = hashlib.sha256(raw_diff.encode("utf-8")).hexdigest()[:16] if raw_diff else ""
 
         # Normalize diff: strip index hashes, hunk line numbers, file paths
-        normalized = DIFF_INDEX_RE.sub("", raw_diff)
-        normalized = DIFF_HUNK_RE.sub("@@", normalized)
-        normalized = DIFF_PATH_RE.sub("", normalized)
-        normalized = normalize_text(normalized)
-        normalized_diff_hash = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16] if normalized else ""
+        pre_norm = DIFF_INDEX_RE.sub("", raw_diff)
+        pre_norm = DIFF_HUNK_RE.sub("@@", pre_norm)
+        pre_norm = DIFF_PATH_RE.sub("", pre_norm)
 
+        # We must preserve '+' and '-' markers to detect reversions!
+        norm_lines = []
+        rev_lines = []
+        for line in pre_norm.splitlines():
+            if line.startswith("+++") or line.startswith("---"):
+                continue
+            if line.startswith("+"):
+                # Normalize the content, but keep the '+'
+                norm_lines.append("+ " + normalize_text(line[1:]))
+                rev_lines.append("- " + normalize_text(line[1:]))
+            elif line.startswith("-"):
+                # Normalize the content, but keep the '-'
+                norm_lines.append("- " + normalize_text(line[1:]))
+                rev_lines.append("+ " + normalize_text(line[1:]))
+            else:
+                norm_lines.append("  " + normalize_text(line))
+                rev_lines.append("  " + normalize_text(line))
+        
+        normalized = "\n".join(norm_lines)
+        
+        normalized_diff_hash = (
+            hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
+            if normalized
+            else ""
+        )
+        
+        reversed_diff = "\n".join(rev_lines)
+        
+        reversed_hash = (
+            hashlib.sha256(reversed_diff.encode("utf-8")).hexdigest()[:16]
+            if reversed_diff
+            else ""
+        )
         # Extract symbols touched
         symbols = list(set(DIFF_SYMBOL_RE.findall(raw_diff)))
 
-        # Count added/removed lines
-        lines_added = sum(1 for line in raw_diff.splitlines() if line.startswith("+") and not line.startswith("+++"))
-        lines_removed = sum(1 for line in raw_diff.splitlines() if line.startswith("-") and not line.startswith("---"))
+        # Count added/removed lines  
+        lines_added = sum(
+            1
+            for line in raw_diff.splitlines()
+            if line.startswith("+") and not line.startswith("+++")
+        )
+        lines_removed = sum(
+            1
+            for line in raw_diff.splitlines()
+            if line.startswith("-") and not line.startswith("---")
+        )
 
         return GitDiffFingerprint(
             diff_hash=diff_hash,
             normalized_diff_hash=normalized_diff_hash,
+            reversed_hash=reversed_hash,
             files=files,
             symbols=symbols,
             lines_added=lines_added,
@@ -159,7 +341,12 @@ class LoopDetector:
         reasons: list[str] = []
         repeated_files: list[str] = []
         repeated_errors: list[str] = []
+        signals: list[DetectorSignal] = []
         triggering_event_ids: list[str] = []
+        progress_score = 0.0
+        progress_signals: list[str] = []
+        unique_strategy_count = 0
+
 
         request_events = [event for event in recent if event.kind == EventKind.AGENT_REQUEST]
         file_events = [
@@ -191,25 +378,122 @@ class LoopDetector:
                 f"Agent retried highly similar requests "
                 f"{similar_request_pairs + 1} times in the recent window."
             )
+            signals.append(DetectorSignal(
+                signal_type="repeated_request",
+                weight=self.settings.repeated_request_weight,
+                detail=f"{similar_request_pairs + 1} similar requests"
+            ))
 
-        repeated_file_group: tuple[str, ...] = ()
-        file_group_counter = Counter(
-            tuple(sorted(set(event.files))) for event in file_events if event.files
-        )
-        if file_group_counter:
-            repeated_file_group, file_group_count = file_group_counter.most_common(1)[0]
+        # TASK-08: File Cluster Similarity
+        file_sets = [tuple(sorted(set(event.files))) for event in file_events if event.files]
+        
+        if file_sets:
+            # Greedy clustering based on Jaccard similarity of file sets
+            clusters: list[list[tuple[str, ...]]] = []
+            cluster_similarity_threshold = 0.6
+            
+            for fset in file_sets:
+                assigned = False
+                for cluster in clusters:
+                    representative = cluster[0]
+                    # Calculate Jaccard similarity between the two sets
+                    intersect = len(set(representative) & set(fset))
+                    union = len(set(representative) | set(fset))
+                    sim = intersect / union if union > 0 else 1.0
+                    
+                    if sim >= cluster_similarity_threshold:
+                        cluster.append(fset)
+                        assigned = True
+                        break
+                if not assigned:
+                    clusters.append([fset])
+                    
+            # Find the cluster with the most events
+            largest_cluster = max(clusters, key=len)
+            file_group_count = len(largest_cluster)
+            
             if file_group_count >= self.settings.file_repeat_threshold:
                 score += self.settings.repeated_file_weight
-                repeated_files = list(repeated_file_group)
+                
+                # The "core" files are the ones present in ALL sets of this cluster
+                core_files = set(largest_cluster[0])
+                for fset in largest_cluster[1:]:
+                    core_files &= set(fset)
+                    
+                # Fallback: if intersection is somehow empty, use union
+                if not core_files:
+                    for fset in largest_cluster:
+                        core_files |= set(fset)
+                        
+                repeated_files = sorted(list(core_files))
                 reasons.append(
-                    f"The same file cluster was touched {file_group_count} times "
-                    f"without a clear recovery signal."
+                    f"A similar file cluster (overlapping files) was touched "
+                    f"{file_group_count} times without a clear recovery signal."
                 )
+                signals.append(DetectorSignal(
+                    signal_type="repeated_file_cluster",
+                    weight=self.settings.repeated_file_weight,
+                    detail=f"{file_group_count} events on {', '.join(repeated_files[:3])}"
+                ))
                 triggering_event_ids.extend(
                     event.event_id
                     for event in file_events
-                    if tuple(sorted(set(event.files))) == repeated_file_group
+                    if event.files and tuple(sorted(set(event.files))) in largest_cluster
                 )
+                
+        # TASK-09: Strategy Similarity between attempts
+        # Split events into "attempts" by AGENT_REQUEST boundaries
+        attempts: list[list[WatchdogEvent]] = []
+        current_attempt: list[WatchdogEvent] = []
+        for event in recent:
+            if event.kind == EventKind.AGENT_REQUEST and current_attempt:
+                attempts.append(current_attempt)
+                current_attempt = [event]
+            else:
+                current_attempt.append(event)
+        if current_attempt:
+            attempts.append(current_attempt)
+
+        # Compare consecutive strategy fingerprints
+        if len(attempts) >= 2:
+            strategy_fps = [self.build_strategy_fingerprint(a) for a in attempts]
+            # TASK-10: Strategy Diversity signal
+            unique_strategy_count = len(set(strategy_fps))
+            similar_strategy_pairs = 0
+            
+            for left_fp, right_fp in zip(strategy_fps, strategy_fps[1:], strict=False):
+                sim = self.strategy_similarity(left_fp, right_fp)
+                if sim >= self.settings.strategy_similarity_threshold:
+                    similar_strategy_pairs += 1
+
+            if similar_strategy_pairs >= 2:
+                score += self.settings.repeated_strategy_weight
+                reasons.append(
+                    f"The agent repeated a highly similar strategy "
+                    f"{similar_strategy_pairs + 1} times consecutively."
+                )
+                signals.append(DetectorSignal(
+                    signal_type="repeated_strategy",
+                    weight=self.settings.repeated_strategy_weight,
+                    detail=f"{similar_strategy_pairs + 1} similar strategies"
+                ))
+                # Add triggering events from the repeated attempts
+                for i, attempt in enumerate(attempts):
+                    if i < len(strategy_fps) - 1:
+                        sim = self.strategy_similarity(strategy_fps[i], strategy_fps[i + 1])
+                        if sim >= self.settings.strategy_similarity_threshold:
+                            triggering_event_ids.extend(
+                                e.event_id for e in attempt
+                                if e.kind == EventKind.AGENT_REQUEST
+                            )
+            else:
+                # If strategies are not highly similar, check if they are diverse
+                if unique_strategy_count >= 3:
+                    score += self.settings.strategy_diversity_weight
+                    reasons.append(
+                        f"Agent is exploring {unique_strategy_count} diverse strategies " 
+                        f"(healthy behavior)."
+                    )
 
         error_counter = Counter(event.error_signature for event in error_events)
         recurrent_errors = [
@@ -221,6 +505,11 @@ class LoopDetector:
             reasons.append(
                 "The session is repeating the same failure signature after multiple attempts."
             )
+            signals.append(DetectorSignal(
+                signal_type="repeated_error",
+                weight=self.settings.repeated_error_weight,
+                detail=f"{len(recurrent_errors)} recurring error signatures"
+            ))
             triggering_event_ids.extend(
                 event.event_id
                 for event in error_events
@@ -244,79 +533,211 @@ class LoopDetector:
                 reasons.append(
                     f"The same test failure repeated {max(tf_counter.values())} times."
                 )
+                signals.append(DetectorSignal(
+                    signal_type="repeated_test_failure",
+                    weight=self.settings.repeated_test_failure_weight,
+                    detail=f"Same test failed {max(tf_counter.values())} times"
+                ))
                 triggering_event_ids.extend(
                     event.event_id
                     for event in test_failure_events
                     if event.test_failure.identity() in repeated_tf
                 )
                 
-        # TASK-07: Repeated / near-identical patch detection
+        # TASK-07: Repeated / reverted patch detection
         diff_events = [
             event for event in recent
-            if event.kind == EventKind.GIT_DIFF and event.git_diff is not None
+            if event.kind in {EventKind.GIT_DIFF, EventKind.PATCH_APPLY} 
+            and event.git_diff is not None
+            and event.git_diff.normalized_diff_hash
         ]
         if diff_events:
-            # Repeated identical patches
-            diff_hash_counter = Counter(e.git_diff.diff_hash for e in diff_events if e.git_diff.diff_hash)
+            # 1. Identical patches (raw hash matches)
+            diff_hash_counter = Counter(
+                e.git_diff.diff_hash for e in diff_events if e.git_diff.diff_hash
+            )
             repeated_diffs = [h for h, c in diff_hash_counter.items() if c >= 2]
             if repeated_diffs:
                 score += self.settings.repeated_patch_weight
                 reasons.append(
                     f"The exact same patch was applied {max(diff_hash_counter.values())} times."
                 )
+                signals.append(DetectorSignal(
+                    signal_type="repeated_patch",
+                    weight=self.settings.repeated_patch_weight,
+                    detail=f"Exact same patch applied {max(diff_hash_counter.values())} times"
+                ))
                 triggering_event_ids.extend(
-                    e.event_id for e in diff_events
+                    e.event_id
+                    for e in diff_events
                     if e.git_diff.diff_hash in repeated_diffs
                 )
 
-            # Near-identical patches (same normalized hash, different raw hash)
-            norm_counter = Counter(e.git_diff.normalized_diff_hash for e in diff_events if e.git_diff.normalized_diff_hash)
+            # 2. Near-identical patches (normalized hash matches, raw hash differs)
+            norm_counter = Counter(
+                e.git_diff.normalized_diff_hash for e in diff_events 
+                if e.git_diff.normalized_diff_hash and e.git_diff.diff_hash not in repeated_diffs
+            )
             near_identical = [h for h, c in norm_counter.items() if c >= 2]
-            if near_identical and not repeated_diffs:
+            if near_identical:
                 score += self.settings.repeated_patch_weight * 0.7
                 reasons.append(
                     "Near-identical patches were applied repeatedly with minor variations."
                 )
+                signals.append(DetectorSignal(
+                    signal_type="near_identical_patch",
+                    weight=self.settings.repeated_patch_weight * 0.7,
+                    detail="Near-identical patches with minor variations"
+                ))
+                triggering_event_ids.extend(
+                    e.event_id
+                    for e in diff_events
+                    if e.git_diff.normalized_diff_hash in near_identical
+                    and e.git_diff.diff_hash not in repeated_diffs
+                )
+                
+            # 3. Revert detection: A patch was applied, and then its inverse was applied
+            seen_hashes: set[str] = set()
+            revert_detected = False
+            for event in diff_events:
+                fp = event.git_diff
+                if fp.normalized_diff_hash in seen_hashes:
+                    continue
+                seen_hashes.add(fp.normalized_diff_hash)
+                for other in diff_events:
+                    if (
+                        other.event_id != event.event_id
+                        and other.git_diff
+                        and other.git_diff.normalized_diff_hash == fp.reversed_hash
+                    ):
+                        revert_detected = True
+                        triggering_event_ids.extend([event.event_id, other.event_id])
+                        break
+                if revert_detected:
+                    break
+            if revert_detected:
+                score += self.settings.reverted_patch_weight
+                reasons.append("A patch was applied and then reverted within the window.")
+                signals.append(DetectorSignal(
+                    signal_type="reverted_patch",
+                    weight=self.settings.reverted_patch_weight,
+                    detail="Patch applied then reverted"
+                ))
 
-        oscillation_pairs = 0
-        for left, right in zip(recent, recent[1:], strict=False):
-            if left.kind in {EventKind.FILE_EDIT, EventKind.PATCH_APPLY} and right.kind in {
-                EventKind.TOOL_ERROR,
-                EventKind.TEST_FAILURE,
-            }:
-                if not left.files or not right.files or set(left.files) & set(right.files):
-                    oscillation_pairs += 1
-            if left.kind in {EventKind.TOOL_ERROR, EventKind.TEST_FAILURE} and right.kind in {
-                EventKind.FILE_EDIT,
-                EventKind.PATCH_APPLY,
-            }:
-                if not left.files or not right.files or set(left.files) & set(right.files):
-                    oscillation_pairs += 1
-        if oscillation_pairs >= 3:
-            score += self.settings.oscillation_weight
+        # TASK-11: A->B->A State Oscillation Detection
+        state_sequence: list[tuple[str, str]] = []
+        for event in recent:
+            is_diff_event = event.kind in {EventKind.GIT_DIFF, EventKind.PATCH_APPLY}
+            if is_diff_event and event.git_diff and event.git_diff.normalized_diff_hash:
+                state_sequence.append(("diff", event.git_diff.normalized_diff_hash))
+            elif (
+                event.kind in {EventKind.TEST_FAILURE, EventKind.TOOL_ERROR}
+                and event.error_signature
+            ):
+                state_sequence.append(("error", event.error_signature))
+                
+            elif event.kind == EventKind.FILE_EDIT and event.files:
+                files_sig = hash_text(",".join(sorted(event.files)))
+                state_sequence.append(("files", files_sig))
+
+        aba_cycles = 0
+        if len(state_sequence) >= 3:
+            for i in range(len(state_sequence) - 2):
+                s_a, s_b, s_c = state_sequence[i], state_sequence[i+1], state_sequence[i+2]
+                # A -> B -> A means first and third are same, middle is different
+                if s_a == s_c and s_a != s_b:
+                    aba_cycles += 1
+
+        if aba_cycles >= 2:
+            score += self.settings.state_oscillation_weight
             reasons.append(
-                "The session is oscillating between edits and failures on the same surface area."
+                f"Detected {aba_cycles} A->B->A state oscillations "
+                f"(e.g. apply, revert/fail, reapply)."
             )
+            signals.append(DetectorSignal(
+                signal_type="state_oscillation",
+                weight=self.settings.state_oscillation_weight,
+                detail=f"{aba_cycles} A->B->A cycles detected"
+            ))
+            # Add triggering events involved in the oscillations
+            for event in recent:
+                if (
+                    (event.git_diff and event.git_diff.normalized_diff_hash)
+                    or event.error_signature
+                    or (event.kind == EventKind.FILE_EDIT and event.files)
+                ):
+                    triggering_event_ids.append(event.event_id)
 
         if not success_events and len(error_events) >= 2 and len(request_events) >= 3:
             score += self.settings.no_progress_weight
             reasons.append(
                 "Spend is growing without a passing test or a recovery event in the recent window."
             )
+            signals.append(DetectorSignal(
+                signal_type="no_progress",
+                weight=self.settings.no_progress_weight,
+                detail="Errors without recovery in recent window"
+            ))
 
+        # TASK-13: Risk + Confidence Engine
         paused = score >= self.settings.pause_score_threshold and len(reasons) >= 2
-        recommendation = (
-            "Pause the agent, inspect the repeated file cluster, "
-            "and require a human-approved plan before resuming."
-            if paused
-            else ""
-        )
+
+        # Calculate Confidence: 0.0 to 1.0 based on how many distinct signals are firing
+        # Each major signal (reason) increases our confidence that the agent is looping
+        
+        confidence = min(1.0, len(reasons) * 0.25)
+
+        # Determine Health State
+        if score >= self.settings.critical_score_threshold:
+            state = HealthState.CRITICAL
+        elif score >= self.settings.high_risk_score_threshold:
+            state = HealthState.HIGH_RISK
+        elif score >= self.settings.warning_score_threshold:
+            state = HealthState.WARNING
+        elif score >= self.settings.watch_score_threshold:
+            state = HealthState.WATCH
+        else:
+            state = HealthState.HEALTHY 
+        # TASK-14: Early Warning + Soft Pause
+        soft_pause = state in {HealthState.WARNING, HealthState.HIGH_RISK} and not paused
+
+        if paused:
+            recommendation = (
+                "Pause the agent, inspect the repeated file cluster, "
+                "and require a human-approved plan before resuming."
+            )
+        elif soft_pause:
+            recommendation = (
+                "Early Warning: Loop risk is elevated. Change strategy immediately "
+                "to avoid automatic pause on the next iteration."
+            )
+        else:
+            recommendation = ""
+        
+        # TASK-12: Progress Engine
+        for event in recent:
+            if event.kind.is_progress:
+                progress_score += self.settings.progress_success_weight
+                progress_signals.append(f"success:{event.kind.value}")
+
+        unique_errors = {e.error_signature for e in error_events if e.error_signature}
+        if len(unique_errors) >= 2:
+            progress_score += self.settings.progress_error_change_weight
+            progress_signals.append(f"errors_changed:{len(unique_errors)}_unique")
+        
         return DetectorDecision(
             paused=paused,
+            soft_pause=soft_pause,
             score=round(score, 2),
+            progress_score=round(progress_score, 2),
+            confidence=round(confidence, 2),
+            state=state,
+            progress_signals=progress_signals,
             reasons=reasons,
+            signals=signals,
             repeated_files=repeated_files,
             repeated_errors=repeated_errors,
             triggering_event_ids=list(dict.fromkeys(triggering_event_ids)),
             recommendation=recommendation,
+            unique_strategies=unique_strategy_count,
         )

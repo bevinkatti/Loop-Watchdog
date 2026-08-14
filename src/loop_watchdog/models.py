@@ -45,7 +45,7 @@ class EventKind(StrEnum):
     TASK_STARTED = "task_started"
     TASK_PROGRESS = "task_progress"
     TASK_COMPLETED = "task_completed"
-
+    
     @property
     def is_v1(self) -> bool:
         return self in {
@@ -75,6 +75,43 @@ class EventKind(StrEnum):
     def is_file_modification(self) -> bool:
         return self in {self.FILE_EDIT, self.PATCH_APPLY, self.FILE_CREATE, self.FILE_DELETE}
 
+    
+class HealthState(StrEnum):
+    HEALTHY = "healthy"
+    WATCH = "watch"
+    WARNING = "warning"
+    HIGH_RISK = "high_risk"
+    CRITICAL = "critical"
+
+    @property
+    def is_v1(self) -> bool:
+        return self in {
+            self.AGENT_REQUEST,
+            self.AGENT_RESPONSE,
+            self.FILE_EDIT,
+            self.PATCH_APPLY,
+            self.TOOL_ERROR,
+            self.TEST_FAILURE,
+            self.TEST_PASS,
+            self.MANUAL_RESUME,
+            self.MANUAL_KILL,
+            self.MANUAL_ACKNOWLEDGE,
+            self.MANUAL_ARCHIVE,
+            self.SESSION_NOTE,
+        }
+
+    @property
+    def is_progress(self) -> bool:
+        return self in {self.TEST_PASS, self.BUILD_SUCCESS, self.LINT_PASS, self.TASK_COMPLETED}
+
+    @property
+    def is_failure(self) -> bool:
+        return self in {self.TOOL_ERROR, self.TEST_FAILURE, self.BUILD_FAILURE, self.LINT_FAILURE}
+
+    @property
+    def is_file_modification(self) -> bool:
+        return self in {self.FILE_EDIT, self.PATCH_APPLY, self.FILE_CREATE, self.FILE_DELETE}
+    
 class TestFailureIdentity(BaseModel):
     framework: str = ""
     suite: str = ""
@@ -91,6 +128,7 @@ class TestFailureIdentity(BaseModel):
 class GitDiffFingerprint(BaseModel):
     diff_hash: str = ""
     normalized_diff_hash: str = ""
+    reversed_hash: str = ""
     files: list[str] = Field(default_factory=list)
     symbols: list[str] = Field(default_factory=list)
     lines_added: int = 0
@@ -98,7 +136,7 @@ class GitDiffFingerprint(BaseModel):
 
     def identity(self) -> str:
         return self.normalized_diff_hash or self.diff_hash
-
+    
 class SessionIdentity(BaseModel):
     watchdog_session_id: str = Field(min_length=1)
     repository: str = ""
@@ -140,14 +178,26 @@ class WatchdogEvent(WatchdogEventCreate):
     created_at: datetime = Field(default_factory=utc_now)
     fingerprint: str = ""
     error_signature: str = ""
+    git_diff_fingerprint: GitDiffFingerprint | None = None
     test_failure: TestFailureIdentity | None = None
     git_diff: GitDiffFingerprint | None = None
 
-
+class DetectorSignal(BaseModel):
+    signal_type: str
+    weight: float
+    detail: str = ""
+    
 class DetectorDecision(BaseModel):
     paused: bool = False
     score: float = 0.0
+    soft_pause: bool = False
     reasons: list[str] = Field(default_factory=list)
+    signals: list[DetectorSignal] = Field(default_factory=list)
+    unique_strategies: int = 0
+    progress_score: float = 0.0
+    confidence: float = 0.0
+    state: HealthState = HealthState.HEALTHY
+    progress_signals: list[str] = Field(default_factory=list)
     repeated_files: list[str] = Field(default_factory=list)
     repeated_errors: list[str] = Field(default_factory=list)
     triggering_event_ids: list[str] = Field(default_factory=list)
@@ -172,6 +222,7 @@ class SessionStatus(BaseModel):
     session_id: str
     identity: SessionIdentity | None = None
     paused: bool
+    current_state: HealthState = HealthState.HEALTHY
     event_count: int
     last_event_at: datetime | None = None
     incident: LoopIncident | None = None
@@ -207,6 +258,7 @@ class SessionSnapshot(BaseModel):
     session_id: str
     identity: SessionIdentity | None = None
     paused: bool
+    current_state: HealthState = HealthState.HEALTHY
     created_at: datetime
     updated_at: datetime
     event_count: int
