@@ -150,6 +150,7 @@ class DetectorDecision(BaseModel):
     paused: bool = False
     score: float = 0.0
     reasons: list[str] = Field(default_factory=list)
+    unique_strategies: int = 0
     repeated_files: list[str] = Field(default_factory=list)
     repeated_errors: list[str] = Field(default_factory=list)
     triggering_event_ids: list[str] = Field(default_factory=list)

@@ -34,15 +34,19 @@ class WatchdogSettings(BaseSettings):
     request_similarity_threshold: float = 0.72
     error_similarity_threshold: float = 0.84
     file_repeat_threshold: int = 3
+    strategy_similarity_threshold: float = 0.7
 
     repeated_request_weight: float = 1.4
     repeated_error_weight: float = 2.0
     repeated_file_weight: float = 1.8
     repeated_test_failure_weight: float = 3.0
     repeated_patch_weight: float = 2.5
+    repeated_strategy_weight: float = 2.2
+    strategy_diversity_weight: float = -1.5
     reverted_patch_weight: float = 2.5
     oscillation_weight: float = 1.6
     no_progress_weight: float = 1.2
+    state_oscillation_weight: float = 2.5
 
     redact_payloads: bool = True
     max_summary_chars: int = 320

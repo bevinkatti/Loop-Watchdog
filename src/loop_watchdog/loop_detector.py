@@ -202,6 +202,52 @@ class LoopDetector:
             lines_removed=int(lines_removed),
         )
         
+    def build_strategy_fingerprint(self, events: list[WatchdogEvent]) -> str:
+        """Build a composite strategy fingerprint from a set of events."""
+        parts: list[str] = []
+
+        # Request text (the agent's stated goal)
+        requests = [e for e in events if e.kind == EventKind.AGENT_REQUEST]
+        if requests:
+            parts.append(f"req:{normalize_text(requests[-1].summary)}")
+
+        # Files touched
+        files: set[str] = set()
+        for e in events:
+            if e.files:
+                files.update(e.files)
+        if files:
+            parts.append(f"files:{','.join(sorted(files))}")
+
+        # Error signatures encountered
+        errors: set[str] = set()
+        for e in events:
+            if e.error_signature:
+                errors.add(e.error_signature)
+        if errors:
+            parts.append(f"errors:{','.join(sorted(errors))}")
+
+        # Diff fingerprints applied
+        diffs: set[str] = set()
+        for e in events:
+            if e.git_diff and e.git_diff.normalized_diff_hash:
+                diffs.add(e.git_diff.normalized_diff_hash)
+        if diffs:
+            parts.append(f"diffs:{','.join(sorted(diffs))}")
+
+        return "|".join(parts)
+
+    def strategy_similarity(self, left: str, right: str) -> float:
+        """Calculate similarity between two strategy fingerprints."""
+        if not left and not right:
+            return 1.0
+        if not left or not right:
+            return 0.0
+        return max(
+            jaccard_similarity(left, right),
+            sequence_similarity(left, right),
+        )
+        
     def extract_git_diff_fingerprint(self, event: WatchdogEvent) -> GitDiffFingerprint:
         meta = event.metadata
         raw_diff = str(meta.get("diff", ""))
@@ -349,6 +395,53 @@ class LoopDetector:
                     for event in file_events
                     if event.files and tuple(sorted(set(event.files))) in largest_cluster
                 )
+                
+        # TASK-09: Strategy Similarity between attempts
+        # Split events into "attempts" by AGENT_REQUEST boundaries
+        attempts: list[list[WatchdogEvent]] = []
+        current_attempt: list[WatchdogEvent] = []
+        for event in recent:
+            if event.kind == EventKind.AGENT_REQUEST and current_attempt:
+                attempts.append(current_attempt)
+                current_attempt = [event]
+            else:
+                current_attempt.append(event)
+        if current_attempt:
+            attempts.append(current_attempt)
+
+        # Compare consecutive strategy fingerprints
+        if len(attempts) >= 2:
+            strategy_fps = [self.build_strategy_fingerprint(a) for a in attempts]
+            # TASK-10: Strategy Diversity signal
+            unique_strategy_count = len(set(strategy_fps))
+            similar_strategy_pairs = 0
+            for left_fp, right_fp in zip(strategy_fps, strategy_fps[1:]):
+                sim = self.strategy_similarity(left_fp, right_fp)
+                if sim >= self.settings.strategy_similarity_threshold:
+                    similar_strategy_pairs += 1
+
+            if similar_strategy_pairs >= 2:
+                score += self.settings.repeated_strategy_weight
+                reasons.append(
+                    f"The agent repeated a highly similar strategy "
+                    f"{similar_strategy_pairs + 1} times consecutively."
+                )
+                # Add triggering events from the repeated attempts
+                for i, attempt in enumerate(attempts):
+                    if i < len(strategy_fps) - 1:
+                        sim = self.strategy_similarity(strategy_fps[i], strategy_fps[i + 1])
+                        if sim >= self.settings.strategy_similarity_threshold:
+                            triggering_event_ids.extend(
+                                e.event_id for e in attempt
+                                if e.kind == EventKind.AGENT_REQUEST
+                            )
+            else:
+                # If strategies are not highly similar, check if they are diverse
+                if unique_strategy_count >= 3:
+                    score += self.settings.strategy_diversity_weight
+                    reasons.append(
+                        f"Agent is exploring {unique_strategy_count} diverse strategies (healthy behavior)."
+                    )
 
         error_counter = Counter(event.error_signature for event in error_events)
         recurrent_errors = [
@@ -451,25 +544,38 @@ class LoopDetector:
                 score += self.settings.reverted_patch_weight
                 reasons.append("A patch was applied and then reverted within the window.")
 
-        oscillation_pairs = 0
-        for left, right in zip(recent, recent[1:], strict=False):
-            if left.kind in {EventKind.FILE_EDIT, EventKind.PATCH_APPLY} and right.kind in {
-                EventKind.TOOL_ERROR,
-                EventKind.TEST_FAILURE,
-            }:
-                if not left.files or not right.files or set(left.files) & set(right.files):
-                    oscillation_pairs += 1
-            if left.kind in {EventKind.TOOL_ERROR, EventKind.TEST_FAILURE} and right.kind in {
-                EventKind.FILE_EDIT,
-                EventKind.PATCH_APPLY,
-            }:
-                if not left.files or not right.files or set(left.files) & set(right.files):
-                    oscillation_pairs += 1
-        if oscillation_pairs >= 3:
-            score += self.settings.oscillation_weight
+        # TASK-11: A->B->A State Oscillation Detection
+        state_sequence: list[tuple[str, str]] = []
+        for event in recent:
+            if event.kind in {EventKind.GIT_DIFF, EventKind.PATCH_APPLY} and event.git_diff and event.git_diff.normalized_diff_hash:
+                state_sequence.append(("diff", event.git_diff.normalized_diff_hash))
+            elif event.kind in {EventKind.TEST_FAILURE, EventKind.TOOL_ERROR} and event.error_signature:
+                state_sequence.append(("error", event.error_signature))
+            elif event.kind == EventKind.FILE_EDIT and event.files:
+                files_sig = hash_text(",".join(sorted(event.files)))
+                state_sequence.append(("files", files_sig))
+
+        aba_cycles = 0
+        if len(state_sequence) >= 3:
+            for i in range(len(state_sequence) - 2):
+                s_a, s_b, s_c = state_sequence[i], state_sequence[i+1], state_sequence[i+2]
+                # A -> B -> A means first and third are same, middle is different
+                if s_a == s_c and s_a != s_b:
+                    aba_cycles += 1
+
+        if aba_cycles >= 2:
+            score += self.settings.state_oscillation_weight
             reasons.append(
-                "The session is oscillating between edits and failures on the same surface area."
+                f"Detected {aba_cycles} A->B->A state oscillations (e.g. apply, revert/fail, reapply)."
             )
+            # Add triggering events involved in the oscillations
+            for event in recent:
+                if (
+                    (event.git_diff and event.git_diff.normalized_diff_hash)
+                    or event.error_signature
+                    or (event.kind == EventKind.FILE_EDIT and event.files)
+                ):
+                    triggering_event_ids.append(event.event_id)
 
         if not success_events and len(error_events) >= 2 and len(request_events) >= 3:
             score += self.settings.no_progress_weight
@@ -484,6 +590,7 @@ class LoopDetector:
             if paused
             else ""
         )
+        
         return DetectorDecision(
             paused=paused,
             score=round(score, 2),
@@ -492,4 +599,5 @@ class LoopDetector:
             repeated_errors=repeated_errors,
             triggering_event_ids=list(dict.fromkeys(triggering_event_ids)),
             recommendation=recommendation,
+            unique_strategies=unique_strategy_count if 'unique_strategy_count' in locals() else 0, # fallback
         )
