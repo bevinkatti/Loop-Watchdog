@@ -312,6 +312,9 @@ class LoopDetector:
         repeated_files: list[str] = []
         repeated_errors: list[str] = []
         triggering_event_ids: list[str] = []
+        progress_score = 0.0
+        progress_signals: list[str] = []
+        unique_strategy_count = 0  # Clean up the ugly 'in locals()' check from Task 10
 
         request_events = [event for event in recent if event.kind == EventKind.AGENT_REQUEST]
         file_events = [
@@ -591,13 +594,26 @@ class LoopDetector:
             else ""
         )
         
+        # TASK-12: Progress Engine
+        for event in recent:
+            if event.kind.is_progress:
+                progress_score += self.settings.progress_success_weight
+                progress_signals.append(f"success:{event.kind.value}")
+
+        unique_errors = {e.error_signature for e in error_events if e.error_signature}
+        if len(unique_errors) >= 2:
+            progress_score += self.settings.progress_error_change_weight
+            progress_signals.append(f"errors_changed:{len(unique_errors)}_unique")
+        
         return DetectorDecision(
             paused=paused,
             score=round(score, 2),
+            progress_score=round(progress_score, 2),
+            progress_signals=progress_signals,
             reasons=reasons,
             repeated_files=repeated_files,
             repeated_errors=repeated_errors,
             triggering_event_ids=list(dict.fromkeys(triggering_event_ids)),
             recommendation=recommendation,
-            unique_strategies=unique_strategy_count if 'unique_strategy_count' in locals() else 0, # fallback
+            unique_strategies=unique_strategy_count,
         )

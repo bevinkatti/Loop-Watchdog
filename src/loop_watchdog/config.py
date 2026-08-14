@@ -47,6 +47,8 @@ class WatchdogSettings(BaseSettings):
     oscillation_weight: float = 1.6
     no_progress_weight: float = 1.2
     state_oscillation_weight: float = 2.5
+    progress_success_weight: float = 2.0
+    progress_error_change_weight: float = 1.0
 
     redact_payloads: bool = True
     max_summary_chars: int = 320
