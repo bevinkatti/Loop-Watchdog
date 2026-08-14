@@ -54,13 +54,20 @@ Loop Watchdog proxy (FastAPI)
 
 ## What The Proxy Detects
 
-- High-overlap retries across adjacent agent requests
-- The same files being churned repeatedly with no success signal
-- Repeating failure signatures after normalization
-- Edit -> error -> edit -> error oscillation on the same files
-- Growing request volume without a passing test or explicit recovery event
+Phase 2 evolved the detector from a basic rule-based system into a sophisticated, graduated risk engine with full explainability. It tracks:
 
-The detector is intentionally rule-based for v1. It is deterministic, cheap to run locally, and easy to tune from real operator feedback.
+- **Error Normalization & Test Identity:** Canonicalizes UUIDs, paths, timestamps, and ports so identical failures match across different machines. Structurally identifies repeated test failures by suite, test ID, and stacktrace signature.
+- **Git Diff Fingerprinting:** Normalizes patches to detect exact repetitions, near-identical variations, and apply/revert oscillations.
+- **File Cluster Similarity:** Uses Jaccard similarity to group overlapping file sets (e.g., recognizing that editing `[A, B]` and `[A, B, C]` is the same cluster).
+- **Strategy Analysis:** Fingerprints the agent's overall approach (request + files + errors + diffs) to detect repeated strategies, while actively rewarding healthy strategy diversity.
+- **State Oscillation (A→B→A):** Detects thrashing patterns where an agent applies a patch, fails, reverts it, fails, and reapplies it.
+- **Progress Tracking:** An independent progress score that rewards passing tests, successful builds, and encountering *new* errors (indicating the agent is breaking new ground rather than stuck).
+- **Graduated Risk & Soft Pauses:** Outputs semantic health states (`HEALTHY` → `WATCH` → `WARNING` → `HIGH_RISK` → `CRITICAL`). Issues early-warning "soft pauses" before dropping the hammer on a hard pause.
+- **Detector Explainability:** Every pause decision is backed by machine-readable structured signals (`DetectorSignal`) that explain exactly which weights fired and why.
+
+The detector remains intentionally deterministic, local-first, and agent-agnostic. It is cheap to run locally and easy to tune from real operator feedback.     
+
+---
 
 ## Quick Start
 
@@ -268,8 +275,13 @@ Environment variables are documented in [apps/control-plane/.dev.vars.example](<
 ## Development
 
 ```bash
+# Run tests
 python -m pytest
-python -m compileall src tests
+```
+```bash
+# Lint and format
+ruff check src/ tests/
+ruff format src
 ```
 # dashboard view
 ![Dashboard 1](screenshots/dash1.png)
@@ -279,9 +291,10 @@ python -m compileall src tests
 
 - The proxy is intentionally local-first. A developer can run it without creating a cloud account.
 - Incidents are serialized with enough context to power a future dashboard without reworking the schema.
-- The detector is built around explainable signals so the pause decision can be surfaced to humans without hand-waving.
+- The detector is built around explainable, structured signals so the pause decision can be surfaced to humans and integrations without hand-waving.
 - Session state persists locally by default, so incidents and operator notes survive a restart.
 - The dashboard can enforce a changed-plan token before a resumed session is allowed to spend again.
 - The landing page keeps the live dashboard clean by default, while guided trial can create a realistic paused session on demand.
+- Risk scoring is graduated (Health States + Soft Pauses) to give agents a chance to self-correct before hard intervention.
 
-The next product layer after this repo is a native editor wrapper that emits richer diff and test telemetry automatically. This codebase is designed so that layer can plug into the existing event API without replacing the core.
+The next product layer (Phase 3 & 4) focuses on **Automatic Telemetry** and **Agent-Agnostic Adapters** (Claude Code, Codex, Gemini) that emit richer diff, test, and git telemetry automatically. The Phase 2 detection engine is fully primed to consume this telemetry via the existing event API.
